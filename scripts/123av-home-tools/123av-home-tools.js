@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  console.info('[123AV Home Tools] v1.0.0 starting', location.href);
+  console.info('[123AV Home Tools] v1.1.0 starting', location.href);
 
   const EXISTING = window.__av123HomeTools;
   if (EXISTING?.show) {
@@ -16,6 +16,7 @@
   const DEFAULT_INTERVAL_MS = 900;
   const GROWTH_TIMEOUT_MS = 20000;
   const MAX_STALL_RETRIES = 3;
+  const HAS_MENU_COMMAND = typeof GM_registerMenuCommand === 'function';
 
   let destroyed = false;
   let queue = Promise.resolve();
@@ -372,6 +373,21 @@
     delete window.__av123HomeTools;
   }
 
+  function showPanel() {
+    panel.style.display = 'block';
+    refresh();
+  }
+
+  function hidePanel() {
+    stopAll();
+    panel.style.display = 'none';
+  }
+
+  function togglePanel() {
+    if (panel.style.display === 'none') showPanel();
+    else hidePanel();
+  }
+
   const style = document.createElement('style');
   style.id = STYLE_ID;
   style.textContent = `
@@ -411,6 +427,7 @@
 
   const panel = document.createElement('section');
   panel.id = PANEL_ID;
+  panel.style.display = HAS_MENU_COMMAND ? 'none' : 'block';
   panel.innerHTML = `
     <div class="aht-header">
       <div><strong>123AV 首页工具</strong><div class="aht-summary">空闲</div></div>
@@ -446,11 +463,12 @@
   panel.querySelector('.aht-start-all').addEventListener('click', () => rows.forEach(enqueue));
   panel.querySelector('.aht-stop-all').addEventListener('click', stopAll);
   panel.querySelector('.aht-refresh').addEventListener('click', refresh);
-  panel.querySelector('.aht-close').addEventListener('click', destroy);
+  panel.querySelector('.aht-close').addEventListener('click', hidePanel);
 
   window.__av123HomeTools = {
-    show() { panel.style.display = 'block'; },
-    hide() { panel.style.display = 'none'; },
+    show: showPanel,
+    hide: hidePanel,
+    toggle: togglePanel,
     refresh,
     stopAll,
     extractFeatured: extractAndCopyFeatured,
@@ -466,6 +484,10 @@
       }));
     },
   };
+
+  if (HAS_MENU_COMMAND) {
+    GM_registerMenuCommand('打开/隐藏 123AV 首页工具', togglePanel);
+  }
 
   refresh();
   syncTimer = setInterval(() => {

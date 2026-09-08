@@ -21,7 +21,9 @@
 
 ## 安装
 
-在 Tampermonkey 中安装 `123av-home-tools.user.js`，刷新 123AV 首页后，右上角会出现“123AV 首页工具”面板。
+在 Tampermonkey 中安装 `123av-home-tools.user.js`。脚本默认不会主动显示面板；需要使用时，
+点击浏览器工具栏中的 Tampermonkey 图标，再选择“打开/隐藏 123AV 首页工具”。面板右上角的
+`×` 会停止任务并隐藏面板，之后可从油猴菜单再次打开。
 
 ## 构建与检查
 

@@ -1,19 +1,20 @@
 // ==UserScript==
 // @name         MissAV 自动 Load More
 // @namespace    wjl.local
-// @version      1.3.1
+// @version      1.4.0
 // @description  自动识别 MissAV 的多个 Load More 板块，并分别加载到指定总数。
 // @match        https://missav.ai/*
 // @match        https://*.missav.ai/*
 // @run-at       document-end
 // @grant        GM_addStyle
+// @grant        GM_registerMenuCommand
 // @noframes
 // ==/UserScript==
 
 (() => {
   'use strict';
 
-  console.info('[MissAV Auto Loader] v1.3.1 starting', location.href);
+  console.info('[MissAV Auto Loader] v1.4.0 starting', location.href);
 
   const EXISTING = window.__missavAutoLoader;
   if (EXISTING?.show) {
@@ -30,6 +31,7 @@
   const DEFAULT_INTERVAL_MS = 900;
   const GROWTH_TIMEOUT_MS = 20000;
   const MAX_STALL_RETRIES = 3;
+  const HAS_MENU_COMMAND = typeof GM_registerMenuCommand === 'function';
 
   let destroyed = false;
   let queue = Promise.resolve();
@@ -393,6 +395,21 @@
     delete window.__missavAutoLoader;
   }
 
+  function showPanel() {
+    panel.style.display = 'block';
+    refresh();
+  }
+
+  function hidePanel() {
+    stopAll();
+    panel.style.display = 'none';
+  }
+
+  function togglePanel() {
+    if (panel.style.display === 'none') showPanel();
+    else hidePanel();
+  }
+
   const style = document.createElement('style');
   style.id = STYLE_ID;
   style.textContent = `
@@ -427,6 +444,7 @@
 
   const panel = document.createElement('section');
   panel.id = PANEL_ID;
+  panel.style.display = HAS_MENU_COMMAND ? 'none' : 'block';
   panel.innerHTML = `
     <div class="mal-header">
       <div><strong>MissAV 自动 Load More</strong><div class="mal-summary">空闲</div></div>
@@ -451,11 +469,12 @@
   panel.querySelector('.mal-start-all').addEventListener('click', () => rows.forEach(enqueue));
   panel.querySelector('.mal-stop-all').addEventListener('click', stopAll);
   panel.querySelector('.mal-refresh').addEventListener('click', refresh);
-  panel.querySelector('.mal-close').addEventListener('click', destroy);
+  panel.querySelector('.mal-close').addEventListener('click', hidePanel);
 
   window.__missavAutoLoader = {
-    show() { panel.style.display = 'block'; },
-    hide() { panel.style.display = 'none'; },
+    show: showPanel,
+    hide: hidePanel,
+    toggle: togglePanel,
     refresh,
     stopAll,
     destroy,
@@ -470,6 +489,10 @@
       }));
     },
   };
+
+  if (HAS_MENU_COMMAND) {
+    GM_registerMenuCommand('打开/隐藏 MissAV Load More 面板', togglePanel);
+  }
 
   refresh();
   syncTimer = setInterval(() => {
