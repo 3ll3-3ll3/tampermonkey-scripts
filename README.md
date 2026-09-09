@@ -12,7 +12,7 @@
 
 | 脚本 | 当前版本 | 用途 | 安装文件 |
 | --- | --- | --- | --- |
-| MissAV Auto Load More | 1.6.0 | 分别识别多个 Load More 板块，并自动加载到指定数量；兼容新版非 grid 结构 | [`missav-auto-loader.user.js`](scripts/missav-auto-loader/missav-auto-loader.user.js) |
+| MissAV Auto Load More | 1.4.0 | 分别识别多个 Load More 板块，并自动加载到指定数量；已恢复至 2026-09-08 的稳定版 | [`missav-auto-loader.user.js`](scripts/missav-auto-loader/missav-auto-loader.user.js) |
 | 123AV 首页工具 | 1.1.0 | 自动 Load More，并一键提取顶部轮播全部标题 | [`123av-home-tools.user.js`](scripts/123av-home-tools/123av-home-tools.user.js) |
 
 ## 目录约定

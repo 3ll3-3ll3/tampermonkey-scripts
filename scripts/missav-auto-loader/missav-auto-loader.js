@@ -1,10 +1,11 @@
 (() => {
   'use strict';
 
-  console.info('[MissAV Auto Loader] v1.6.0 starting', location.href);
+  console.info('[MissAV Auto Loader] v1.4.0 starting', location.href);
 
   const EXISTING = window.__missavAutoLoader;
   if (EXISTING?.show) {
+    EXISTING.show();
     EXISTING.refresh();
     return;
   }
@@ -26,8 +27,6 @@
   let listElement;
   let summaryElement;
   let syncTimer;
-  const sectionKeys = new WeakMap();
-  let nextSectionKey = 1;
 
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -36,7 +35,7 @@
   }
 
   function loadMoreButtons() {
-    return [...document.querySelectorAll('a, button, [role="button"]')].filter((element) => {
+    return [...document.querySelectorAll('a, button')].filter((element) => {
       const label = normalizedText(element)
         || element.getAttribute('aria-label')
         || element.getAttribute('title')
@@ -47,115 +46,79 @@
       // still a # link inside an absolutely positioned control immediately
       // after a titled card grid, so keep a structure-based fallback.
       const control = element.parentElement;
-      const section = control?.previousElementSibling || control?.parentElement;
+      const section = control?.previousElementSibling;
       return element.getAttribute('href') === '#'
-        && Boolean(control?.classList.contains('absolute') || control?.querySelector?.('svg'))
+        && Boolean(control?.classList.contains('absolute'))
         && Boolean(section?.querySelector('h1, h2, h3, h4, h5, h6'))
         && Boolean(section?.querySelector('.grid, [class*="grid-cols-"]'));
     });
   }
 
-  function comesBefore(element, reference) {
-    return Boolean(element.compareDocumentPosition(reference) & Node.DOCUMENT_POSITION_FOLLOWING);
+  function isRealCard(element) {
+    if (!(element instanceof HTMLElement)) return false;
+    if (element.matches('template, script, style')) return false;
+    const links = [...element.querySelectorAll('a[href]')];
+    return links.some((link) => {
+      const href = (link.getAttribute('href') || '').trim();
+      return href && href !== '#' && !href.toLowerCase().startsWith('javascript:');
+    });
   }
 
-  function linkKey(link) {
-    const rawHref = (link?.getAttribute('href') || '').trim();
-    if (!rawHref || rawHref === '#' || rawHref.toLowerCase().startsWith('javascript:')) return null;
-    try {
-      const url = new URL(rawHref, location.href);
-      if (url.origin !== location.origin || url.pathname === location.pathname) return null;
-      return `${url.origin}${url.pathname.replace(/\/$/, '')}`;
-    } catch {
-      return null;
-    }
+  function countCards(grid) {
+    if (!grid) return 0;
+    return [...grid.children].filter(isRealCard).length;
   }
 
-  function looksLikeVideoPath(key) {
-    const slug = key.split('/').filter(Boolean).pop() || '';
-    return /(?:[a-z0-9]{2,18}(?:[-_][a-z0-9]{1,18})*[-_]\d{2,10}(?:[-_][a-z0-9]+)*|[a-z]{2,12}\d{3,9})$/iu.test(slug);
-  }
+  function findSectionContainer(button) {
+    const control = button.parentElement;
+    let candidate = control?.previousElementSibling || null;
 
-  function linksBetween(root, heading, button) {
-    return [...root.querySelectorAll('a[href]')].filter((link) => (
-      link !== button
-      && comesBefore(heading, link)
-      && comesBefore(link, button)
-    ));
-  }
+    if (candidate?.querySelector('h1, h2, h3, h4, h5, h6')) return candidate;
 
-  function cardKeys(section) {
-    if (!section?.section?.isConnected || !section.heading) return [];
-    const links = section.button?.isConnected
-      ? linksBetween(section.section, section.heading, section.button)
-      : [...section.section.querySelectorAll('a[href]')]
-        .filter((link) => comesBefore(section.heading, link));
-    const keys = links
-      .map(linkKey)
-      .filter(Boolean);
-    const videoKeys = keys.filter(looksLikeVideoPath);
-    return [...new Set(videoKeys.length ? videoKeys : keys)];
-  }
-
-  function countCards(section) {
-    return cardKeys(section).length;
-  }
-
-  function precedingHeading(button) {
-    const headings = [...document.querySelectorAll('h1, h2, h3, h4, h5, h6')];
-    return headings.filter((heading) => comesBefore(heading, button)).pop() || null;
-  }
-
-  function findSection(button) {
-    const heading = precedingHeading(button);
-    if (!heading) return null;
-
-    let candidate = button.parentElement;
-    for (let depth = 0; candidate && candidate !== document.documentElement && depth < 16; depth++) {
-      const found = { section: candidate, heading, button };
-      if (candidate.contains(heading) && countCards(found) > 0) return found;
-      candidate = candidate.parentElement;
+    let sibling = control?.previousElementSibling || null;
+    while (sibling) {
+      if (sibling.querySelector?.('h1, h2, h3, h4, h5, h6')) return sibling;
+      sibling = sibling.previousElementSibling;
     }
     return null;
   }
 
-  function sectionKey(root) {
-    if (!sectionKeys.has(root)) sectionKeys.set(root, `section::${nextSectionKey++}`);
-    return sectionKeys.get(root);
+  function bestGrid(section) {
+    const candidates = [
+      ...section.querySelectorAll('.grid, [class*="grid-cols-"]'),
+    ];
+    if (!candidates.length) return null;
+    return candidates.sort((a, b) => countCards(b) - countCards(a))[0];
   }
 
   function discoverSections() {
     const titleCounts = new Map();
     return loadMoreButtons()
-      .map((button) => {
-        const found = findSection(button);
-        const section = found?.section || null;
-        const heading = found?.heading || null;
+      .map((button, index) => {
+        const section = findSectionContainer(button);
+        const heading = section?.querySelector('h1, h2, h3, h4, h5, h6');
         const title = normalizedText(heading) || '未命名板块';
-        if (!section) return null;
+        const grid = section ? bestGrid(section) : null;
+        if (!section || !grid) return null;
 
         const ordinal = (titleCounts.get(title) || 0) + 1;
         titleCounts.set(title, ordinal);
         return {
-          key: sectionKey(section),
+          key: `section::${index + 1}`,
           title: ordinal === 1 ? title : `${title} (${ordinal})`,
           rawTitle: title,
           ordinal,
           section,
-          heading,
+          grid,
           button,
-          count: countCards(found),
+          count: countCards(grid),
         };
       })
       .filter(Boolean);
   }
 
-  function rediscover(state) {
-    const sections = discoverSections();
-    return sections.find((section) => section.section === state.section)
-      || sections.find((section) => section.key === state.key)
-      || sections.find((section) => section.rawTitle === state.rawTitle && section.ordinal === state.ordinal)
-      || null;
+  function rediscover(key) {
+    return discoverSections().find((section) => section.key === key) || null;
   }
 
   function buttonReady(button) {
@@ -167,23 +130,17 @@
   }
 
   function currentSection(state) {
-    const found = rediscover(state);
+    const found = rediscover(state.key);
     if (found) {
-      state.section = found.section;
-      state.rawTitle = found.rawTitle;
-      state.ordinal = found.ordinal;
-      state.lastHeading = found.heading;
-      state.lastButton = found.button;
+      state.lastGrid = found.grid;
       if (state.titleElement && !PLACEHOLDER_TITLE.test(found.title) && state.title !== found.title) {
         state.title = found.title;
         state.titleElement.textContent = found.title;
       }
       return found;
     }
-    if (state.section?.isConnected && state.lastHeading?.isConnected) {
-      const button = state.lastButton?.isConnected ? state.lastButton : null;
-      if (!button) return { section: state.section, heading: state.lastHeading, button: null, count: 0 };
-      return { section: state.section, heading: state.lastHeading, button };
+    if (state.lastGrid?.isConnected) {
+      return { grid: state.lastGrid, button: null };
     }
     return null;
   }
@@ -205,21 +162,21 @@
       const check = () => {
         const current = currentSection(state);
         if (!current) return;
-        const count = countCards(current);
+        const count = countCards(current.grid);
         if (count > previousCount) finish({ grew: true, count, current });
       };
 
       const first = currentSection(state);
-      if (first?.section) {
+      if (first?.grid) {
         observer = new MutationObserver(check);
-        observer.observe(first.section, { childList: true, subtree: true });
+        observer.observe(first.grid, { childList: true, subtree: false });
       }
       const pollTimer = setInterval(check, 250);
       const timeoutTimer = setTimeout(() => {
         const current = currentSection(state);
         finish({
           grew: false,
-          count: current ? countCards(current) : previousCount,
+          count: current ? countCards(current.grid) : previousCount,
           current,
         });
       }, GROWTH_TIMEOUT_MS);
@@ -241,11 +198,9 @@
   async function waitUntilReady(state, maxWaitMs = 10000) {
     const deadline = Date.now() + maxWaitMs;
     while (!state.cancelRequested && Date.now() < deadline) {
-      const current = rediscover(state);
+      const current = rediscover(state.key);
       if (!current) return null;
-      state.section = current.section;
-      state.lastHeading = current.heading;
-      state.lastButton = current.button;
+      state.lastGrid = current.grid;
       if (buttonReady(current.button)) return current;
       await sleep(250);
     }
@@ -277,7 +232,7 @@
           break;
         }
 
-        const count = countCards(current);
+        const count = countCards(current.grid);
         state.countElement.textContent = String(count);
         if (count >= target) {
           const extra = count - target;
@@ -295,7 +250,7 @@
           break;
         }
 
-        const before = countCards(ready);
+        const before = countCards(ready.grid);
         setRowStatus(state, `加载中：${before} / ${target}`);
         ready.button.click();
         const result = await waitForGrowth(state, before);
@@ -380,15 +335,11 @@
     const state = {
       key: section.key,
       title: section.title,
-      rawTitle: section.rawTitle,
-      ordinal: section.ordinal,
-      section: section.section,
       titleElement,
       running: false,
       queued: false,
       cancelRequested: false,
-      lastHeading: section.heading,
-      lastButton: section.button,
+      lastGrid: section.grid,
       countElement,
       targetInput,
       statusElement: row.querySelector('.mal-status'),
@@ -532,18 +483,9 @@
 
   refresh();
   syncTimer = setInterval(() => {
-    if (![...rows.values()].some((state) => state.running || state.queued)) {
-      const discovered = discoverSections();
-      const knownRoots = new Set([...rows.values()].map((state) => state.section));
-      if ((rows.size === 0 && discovered.length > 0)
-        || discovered.some((section) => !knownRoots.has(section.section))) {
-        refresh();
-        return;
-      }
-    }
     rows.forEach((state) => {
       const current = currentSection(state);
-      if (current && !state.running) state.countElement.textContent = String(countCards(current));
+      if (current && !state.running) state.countElement.textContent = String(countCards(current.grid));
     });
   }, 1000);
   console.info('[MissAV Auto Loader] ready', {

@@ -11,13 +11,12 @@
       for (const name of names) {
         const section = document.createElement('section');
         section.className = 'relative section-wrapper';
-        section.innerHTML = `<div class="content"><h2>${name}</h2><div class="video-shelf"></div></div><div class="load-control"><a href="#"><span>載入更多</span></a></div>`;
-        const grid = section.querySelector('.video-shelf');
+        section.innerHTML = `<div class="content"><h2>${name}</h2><div class="grid grid-cols-4"></div></div><div class="absolute load-control"><a href="#">載入更多</a></div>`;
+        const grid = section.querySelector('.grid');
         const addCards = () => {
           for (let index = 0; index < 12; index++) {
             const card = document.createElement('article');
-            const code = `TEST-${String(grid.children.length + 1).padStart(3, '0')}`;
-            card.innerHTML = `<a href="/cn/${code}">封面</a><a href="/cn/${code}">${code}</a>`;
+            card.innerHTML = `<a href="/video/${grid.children.length + 1}">测试卡片 ${grid.children.length + 1}</a>`;
             grid.appendChild(card);
           }
         };
