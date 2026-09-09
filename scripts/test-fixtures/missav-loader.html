@@ -1,6 +1,14 @@
 <!doctype html>
 <html lang="zh-CN">
-<head><meta charset="utf-8"><title>MissAV Load More 验收</title></head>
+<head>
+  <meta charset="utf-8"><title>MissAV Load More 验收</title>
+  <script>
+    window.GM_registerMenuCommand = (name, handler) => {
+      window.__testMenuName = name;
+      window.__testMenuHandler = handler;
+    };
+  </script>
+</head>
 <body>
   <h1>新版嵌套结构测试页</h1>
   <main id="sections"></main>
@@ -44,6 +52,10 @@
         root.appendChild(section);
       }
     }, 1200);
+    setTimeout(() => {
+      document.querySelector('#missav-auto-loader-panel')?.remove();
+      document.querySelector('#missav-auto-loader-style')?.remove();
+    }, 2600);
   </script>
   <script src="../missav-auto-loader/missav-auto-loader.js"></script>
 </body>

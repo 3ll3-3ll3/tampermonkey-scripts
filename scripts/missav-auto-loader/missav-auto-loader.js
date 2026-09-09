@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  console.info('[MissAV Auto Loader] v1.4.1 starting', location.href);
+  console.info('[MissAV Auto Loader] v1.4.2 starting', location.href);
 
   const EXISTING = window.__missavAutoLoader;
   if (EXISTING?.show) {
@@ -435,24 +435,39 @@
     clearTimeout(discoveryTimer);
     clearTimeout(initialDiscoveryTimer);
     domObserver?.disconnect();
+    document.removeEventListener('keydown', onWakeHotkey, true);
     document.getElementById(PANEL_ID)?.remove();
     document.getElementById(STYLE_ID)?.remove();
     delete window.__missavAutoLoader;
   }
 
+  function ensureUiAttached() {
+    if (!style.isConnected) (document.head || document.documentElement).appendChild(style);
+    if (!panel.isConnected) (document.body || document.documentElement).appendChild(panel);
+  }
+
   function showPanel() {
+    ensureUiAttached();
     panel.style.display = 'block';
     refresh();
   }
 
   function hidePanel() {
+    ensureUiAttached();
     stopAll();
     panel.style.display = 'none';
   }
 
   function togglePanel() {
-    if (panel.style.display === 'none') showPanel();
+    if (!panel.isConnected || panel.style.display === 'none' || getComputedStyle(panel).display === 'none') showPanel();
     else hidePanel();
+  }
+
+  function onWakeHotkey(event) {
+    if (!event.altKey || !event.shiftKey || event.code !== 'KeyL') return;
+    event.preventDefault();
+    event.stopPropagation();
+    togglePanel();
   }
 
   const style = document.createElement('style');
@@ -515,6 +530,7 @@
   panel.querySelector('.mal-stop-all').addEventListener('click', stopAll);
   panel.querySelector('.mal-refresh').addEventListener('click', refresh);
   panel.querySelector('.mal-close').addEventListener('click', hidePanel);
+  document.addEventListener('keydown', onWakeHotkey, true);
 
   window.__missavAutoLoader = {
     show: showPanel,
@@ -536,17 +552,19 @@
   };
 
   if (HAS_MENU_COMMAND) {
-    GM_registerMenuCommand('打开/隐藏 MissAV Load More 面板', togglePanel);
+    GM_registerMenuCommand('打开/隐藏 MissAV Load More 面板（Alt+Shift+L）', togglePanel);
   }
 
   refresh();
   startInitialDiscovery();
   domObserver = new MutationObserver((mutations) => {
+    ensureUiAttached();
     if (mutations.every((mutation) => panel.contains(mutation.target))) return;
     scheduleDiscovery();
   });
-  domObserver.observe(document.body || document.documentElement, { childList: true, subtree: true });
+  domObserver.observe(document.documentElement, { childList: true, subtree: true });
   syncTimer = setInterval(() => {
+    ensureUiAttached();
     if (!rows.size) scheduleDiscovery();
     rows.forEach((state) => {
       const current = currentSection(state);
