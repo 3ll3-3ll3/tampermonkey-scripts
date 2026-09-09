@@ -1,10 +1,12 @@
 // ==UserScript==
 // @name         MissAV 自动 Load More
 // @namespace    wjl.local
-// @version      1.4.0
+// @version      1.4.4
 // @description  自动识别 MissAV 的多个 Load More 板块，并分别加载到指定总数。
 // @match        https://missav.ai/*
 // @match        https://*.missav.ai/*
+// @updateURL    https://raw.githubusercontent.com/3ll3-3ll3/tampermonkey-scripts/main/scripts/missav-auto-loader/missav-auto-loader.user.js
+// @downloadURL  https://raw.githubusercontent.com/3ll3-3ll3/tampermonkey-scripts/main/scripts/missav-auto-loader/missav-auto-loader.user.js
 // @run-at       document-end
 // @grant        GM_addStyle
 // @grant        GM_registerMenuCommand
@@ -14,7 +16,7 @@
 (() => {
   'use strict';
 
-  console.info('[MissAV Auto Loader] v1.4.0 starting', location.href);
+  console.info('[MissAV Auto Loader] v1.4.4 starting', location.href);
 
   const EXISTING = window.__missavAutoLoader;
   if (EXISTING?.show) {
@@ -40,6 +42,9 @@
   let listElement;
   let summaryElement;
   let syncTimer;
+  let uiObserver;
+  let observedRoot;
+  let panelVisible = !HAS_MENU_COMMAND;
 
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -390,24 +395,46 @@
     stopAll();
     destroyed = true;
     clearInterval(syncTimer);
+    uiObserver?.disconnect();
     document.getElementById(PANEL_ID)?.remove();
     document.getElementById(STYLE_ID)?.remove();
     delete window.__missavAutoLoader;
   }
 
+  function ensureUiAttached() {
+    if (destroyed) return;
+    const root = document.documentElement;
+    if (!root) return;
+
+    if (!style.isConnected) (document.head || root).appendChild(style);
+    if (!panel.isConnected) root.appendChild(panel);
+    panel.style.setProperty('display', panelVisible ? 'block' : 'none', 'important');
+
+    if (observedRoot !== root) {
+      uiObserver?.disconnect();
+      observedRoot = root;
+      uiObserver = new MutationObserver(() => {
+        if (!style.isConnected || !panel.isConnected) queueMicrotask(ensureUiAttached);
+      });
+      uiObserver.observe(root, { childList: true, subtree: true });
+    }
+  }
+
   function showPanel() {
-    panel.style.display = 'block';
+    panelVisible = true;
+    ensureUiAttached();
     refresh();
   }
 
   function hidePanel() {
     stopAll();
-    panel.style.display = 'none';
+    panelVisible = false;
+    panel.style.setProperty('display', 'none', 'important');
   }
 
   function togglePanel() {
-    if (panel.style.display === 'none') showPanel();
-    else hidePanel();
+    if (panelVisible) hidePanel();
+    else showPanel();
   }
 
   const style = document.createElement('style');
@@ -444,7 +471,7 @@
 
   const panel = document.createElement('section');
   panel.id = PANEL_ID;
-  panel.style.display = HAS_MENU_COMMAND ? 'none' : 'block';
+  panel.style.setProperty('display', panelVisible ? 'block' : 'none', 'important');
   panel.innerHTML = `
     <div class="mal-header">
       <div><strong>MissAV 自动 Load More</strong><div class="mal-summary">空闲</div></div>
@@ -461,7 +488,7 @@
       <div class="mal-note">按卡片总数停止；每次通常增加 12 条，所以可能略微超过目标。多个板块会串行加载，降低限流风险。</div>
     </div>
   `;
-  (document.body || document.documentElement).appendChild(panel);
+  document.documentElement.appendChild(panel);
 
   intervalInput = panel.querySelector('.mal-interval input');
   listElement = panel.querySelector('.mal-list');
@@ -494,13 +521,15 @@
     GM_registerMenuCommand('打开/隐藏 MissAV Load More 面板', togglePanel);
   }
 
+  ensureUiAttached();
   refresh();
   syncTimer = setInterval(() => {
+    ensureUiAttached();
     rows.forEach((state) => {
       const current = currentSection(state);
       if (current && !state.running) state.countElement.textContent = String(countCards(current.grid));
     });
-  }, 1000);
+  }, 500);
   console.info('[MissAV Auto Loader] ready', {
     sections: rows.size,
     labels: [...rows.values()].map((state) => state.title),

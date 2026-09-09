@@ -56,6 +56,20 @@
       document.querySelector('#missav-auto-loader-panel')?.remove();
       document.querySelector('#missav-auto-loader-style')?.remove();
     }, 2600);
+    setTimeout(() => {
+      const replacementBody = document.createElement('body');
+      replacementBody.innerHTML = '<h1>网站已替换整个 body</h1>';
+      document.body.replaceWith(replacementBody);
+    }, 3000);
+    setTimeout(() => window.__testMenuHandler?.(), 3400);
+    setTimeout(() => {
+      const panel = document.querySelector('#missav-auto-loader-panel');
+      const style = document.querySelector('#missav-auto-loader-style');
+      const visible = panel && getComputedStyle(panel).display !== 'none';
+      document.title = panel && style && visible
+        ? 'PASS: 面板删除后已恢复并可由菜单唤醒'
+        : 'FAIL: 面板保活失败';
+    }, 4200);
   </script>
   <script src="../missav-auto-loader/missav-auto-loader.js"></script>
 </body>
