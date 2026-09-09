@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MissAV 自动 Load More
 // @namespace    wjl.local
-// @version      1.4.4
+// @version      1.4.5
 // @description  自动识别 MissAV 的多个 Load More 板块，并分别加载到指定总数。
 // @match        https://missav.ai/*
 // @match        https://*.missav.ai/*
@@ -16,7 +16,7 @@
 (() => {
   'use strict';
 
-  console.info('[MissAV Auto Loader] v1.4.4 starting', location.href);
+  console.info('[MissAV Auto Loader] v1.4.5 starting', location.href);
 
   const EXISTING = window.__missavAutoLoader;
   if (EXISTING?.show) {
@@ -28,6 +28,7 @@
   const LOAD_MORE_TEXT = /^(?:load\s*more|加载更多|载入更多|載入更多|更多を読み込む|もっと見る)$/iu;
   const PLACEHOLDER_TITLE = /^(?:loading|loading\.\.\.|载入中|载入中…|加载中|加载中…)$/iu;
   const PANEL_ID = 'missav-auto-loader-panel';
+  const LAUNCHER_ID = 'missav-auto-loader-launcher';
   const STYLE_ID = 'missav-auto-loader-style';
   const MAX_TARGET = 10000;
   const DEFAULT_INTERVAL_MS = 900;
@@ -396,7 +397,9 @@
     destroyed = true;
     clearInterval(syncTimer);
     uiObserver?.disconnect();
+    document.removeEventListener('keydown', onWakeHotkey, true);
     document.getElementById(PANEL_ID)?.remove();
+    document.getElementById(LAUNCHER_ID)?.remove();
     document.getElementById(STYLE_ID)?.remove();
     delete window.__missavAutoLoader;
   }
@@ -408,7 +411,9 @@
 
     if (!style.isConnected) (document.head || root).appendChild(style);
     if (!panel.isConnected) root.appendChild(panel);
+    if (!launcher.isConnected) root.appendChild(launcher);
     panel.style.setProperty('display', panelVisible ? 'block' : 'none', 'important');
+    launcher.style.setProperty('display', panelVisible ? 'none' : 'block', 'important');
 
     if (observedRoot !== root) {
       uiObserver?.disconnect();
@@ -430,6 +435,7 @@
     stopAll();
     panelVisible = false;
     panel.style.setProperty('display', 'none', 'important');
+    launcher.style.setProperty('display', 'block', 'important');
   }
 
   function togglePanel() {
@@ -437,9 +443,18 @@
     else showPanel();
   }
 
+  function onWakeHotkey(event) {
+    if (!event.altKey || !event.shiftKey || event.code !== 'KeyL') return;
+    event.preventDefault();
+    event.stopPropagation();
+    togglePanel();
+  }
+
   const style = document.createElement('style');
   style.id = STYLE_ID;
   style.textContent = `
+    #${LAUNCHER_ID} { all: initial; position: fixed; top: 12px; right: 12px; z-index: 2147483647; padding: 7px 11px; color: #fff; background: #2563eb; border: 1px solid #60a5fa; border-radius: 9px; box-shadow: 0 8px 24px rgba(0,0,0,.35); cursor: pointer; font: 600 13px/1.2 system-ui, -apple-system, "Segoe UI", sans-serif; }
+    #${LAUNCHER_ID}:hover { filter: brightness(1.12); }
     #${PANEL_ID} { position: fixed; top: 12px; right: 12px; z-index: 2147483647; width: min(370px, calc(100vw - 24px)); max-height: calc(100vh - 24px); overflow: auto; padding: 0; color: #e5e7eb; background: rgba(17,24,39,.97); border: 1px solid #475569; border-radius: 12px; box-shadow: 0 16px 50px rgba(0,0,0,.45); font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
     #${PANEL_ID} * { box-sizing: border-box; }
     #${PANEL_ID} .mal-header { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 11px 12px; background: #111827; border-bottom: 1px solid #334155; }
@@ -469,6 +484,14 @@
   `;
   (document.head || document.documentElement).appendChild(style);
 
+  const launcher = document.createElement('button');
+  launcher.id = LAUNCHER_ID;
+  launcher.type = 'button';
+  launcher.textContent = 'Load More';
+  launcher.title = '打开 MissAV Load More 面板（Alt+Shift+L）';
+  launcher.style.setProperty('display', panelVisible ? 'none' : 'block', 'important');
+  launcher.addEventListener('click', showPanel);
+
   const panel = document.createElement('section');
   panel.id = PANEL_ID;
   panel.style.setProperty('display', panelVisible ? 'block' : 'none', 'important');
@@ -497,6 +520,7 @@
   panel.querySelector('.mal-stop-all').addEventListener('click', stopAll);
   panel.querySelector('.mal-refresh').addEventListener('click', refresh);
   panel.querySelector('.mal-close').addEventListener('click', hidePanel);
+  document.addEventListener('keydown', onWakeHotkey, true);
 
   window.__missavAutoLoader = {
     show: showPanel,
@@ -518,7 +542,7 @@
   };
 
   if (HAS_MENU_COMMAND) {
-    GM_registerMenuCommand('打开/隐藏 MissAV Load More 面板', togglePanel);
+    GM_registerMenuCommand('打开/隐藏 MissAV Load More 面板（Alt+Shift+L）', togglePanel);
   }
 
   ensureUiAttached();

@@ -61,13 +61,17 @@
       replacementBody.innerHTML = '<h1>网站已替换整个 body</h1>';
       document.body.replaceWith(replacementBody);
     }, 3000);
-    setTimeout(() => window.__testMenuHandler?.(), 3400);
+    setTimeout(() => {
+      const launcher = document.querySelector('#missav-auto-loader-launcher');
+      window.__launcherWasVisible = Boolean(launcher && getComputedStyle(launcher).display !== 'none');
+      launcher?.click();
+    }, 3400);
     setTimeout(() => {
       const panel = document.querySelector('#missav-auto-loader-panel');
       const style = document.querySelector('#missav-auto-loader-style');
       const visible = panel && getComputedStyle(panel).display !== 'none';
-      document.title = panel && style && visible
-        ? 'PASS: 面板删除后已恢复并可由菜单唤醒'
+      document.title = panel && style && visible && window.__launcherWasVisible
+        ? 'PASS: 面板删除后已恢复并可由启动按钮唤醒'
         : 'FAIL: 面板保活失败';
     }, 4200);
   </script>
