@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  console.info('[MissAV Auto Loader] v1.5.0 starting', location.href);
+  console.info('[MissAV Auto Loader] v1.6.0 starting', location.href);
 
   const EXISTING = window.__missavAutoLoader;
   if (EXISTING?.show) {
@@ -55,45 +55,65 @@
     });
   }
 
-  function isRealCard(element) {
-    if (!(element instanceof HTMLElement)) return false;
-    if (element.matches('template, script, style')) return false;
-    const links = [
-      ...(element.matches('a[href]') ? [element] : []),
-      ...element.querySelectorAll('a[href]'),
-    ];
-    return links.some((link) => {
-      const href = (link.getAttribute('href') || '').trim();
-      return href && href !== '#' && !href.toLowerCase().startsWith('javascript:');
-    });
-  }
-
-  function countCards(grid) {
-    if (!grid) return 0;
-    return [...grid.children].filter(isRealCard).length;
-  }
-
   function comesBefore(element, reference) {
     return Boolean(element.compareDocumentPosition(reference) & Node.DOCUMENT_POSITION_FOLLOWING);
   }
 
-  function bestGrid(section, button) {
-    const candidates = [
-      ...section.querySelectorAll('.grid, [class*="grid-cols-"]'),
-    ].filter((grid) => grid !== button && !grid.contains(button) && comesBefore(grid, button));
-    if (!candidates.length) return null;
-    return candidates.sort((a, b) => countCards(b) - countCards(a))[0];
+  function linkKey(link) {
+    const rawHref = (link?.getAttribute('href') || '').trim();
+    if (!rawHref || rawHref === '#' || rawHref.toLowerCase().startsWith('javascript:')) return null;
+    try {
+      const url = new URL(rawHref, location.href);
+      if (url.origin !== location.origin || url.pathname === location.pathname) return null;
+      return `${url.origin}${url.pathname.replace(/\/$/, '')}`;
+    } catch {
+      return null;
+    }
+  }
+
+  function looksLikeVideoPath(key) {
+    const slug = key.split('/').filter(Boolean).pop() || '';
+    return /(?:[a-z0-9]{2,18}(?:[-_][a-z0-9]{1,18})*[-_]\d{2,10}(?:[-_][a-z0-9]+)*|[a-z]{2,12}\d{3,9})$/iu.test(slug);
+  }
+
+  function linksBetween(root, heading, button) {
+    return [...root.querySelectorAll('a[href]')].filter((link) => (
+      link !== button
+      && comesBefore(heading, link)
+      && comesBefore(link, button)
+    ));
+  }
+
+  function cardKeys(section) {
+    if (!section?.section?.isConnected || !section.heading) return [];
+    const links = section.button?.isConnected
+      ? linksBetween(section.section, section.heading, section.button)
+      : [...section.section.querySelectorAll('a[href]')]
+        .filter((link) => comesBefore(section.heading, link));
+    const keys = links
+      .map(linkKey)
+      .filter(Boolean);
+    const videoKeys = keys.filter(looksLikeVideoPath);
+    return [...new Set(videoKeys.length ? videoKeys : keys)];
+  }
+
+  function countCards(section) {
+    return cardKeys(section).length;
+  }
+
+  function precedingHeading(button) {
+    const headings = [...document.querySelectorAll('h1, h2, h3, h4, h5, h6')];
+    return headings.filter((heading) => comesBefore(heading, button)).pop() || null;
   }
 
   function findSection(button) {
+    const heading = precedingHeading(button);
+    if (!heading) return null;
+
     let candidate = button.parentElement;
-    for (let depth = 0; candidate && candidate !== document.documentElement && depth < 9; depth++) {
-      const headings = [...candidate.querySelectorAll('h1, h2, h3, h4, h5, h6')]
-        .filter((heading) => comesBefore(heading, button));
-      const grid = bestGrid(candidate, button);
-      if (headings.length && grid && countCards(grid) > 0) {
-        return { root: candidate, heading: headings[headings.length - 1], grid };
-      }
+    for (let depth = 0; candidate && candidate !== document.documentElement && depth < 16; depth++) {
+      const found = { section: candidate, heading, button };
+      if (candidate.contains(heading) && countCards(found) > 0) return found;
       candidate = candidate.parentElement;
     }
     return null;
@@ -109,11 +129,10 @@
     return loadMoreButtons()
       .map((button) => {
         const found = findSection(button);
-        const section = found?.root || null;
+        const section = found?.section || null;
         const heading = found?.heading || null;
         const title = normalizedText(heading) || '未命名板块';
-        const grid = found?.grid || null;
-        if (!section || !grid) return null;
+        if (!section) return null;
 
         const ordinal = (titleCounts.get(title) || 0) + 1;
         titleCounts.set(title, ordinal);
@@ -123,9 +142,9 @@
           rawTitle: title,
           ordinal,
           section,
-          grid,
+          heading,
           button,
-          count: countCards(grid),
+          count: countCards(found),
         };
       })
       .filter(Boolean);
@@ -153,7 +172,7 @@
       state.section = found.section;
       state.rawTitle = found.rawTitle;
       state.ordinal = found.ordinal;
-      state.lastGrid = found.grid;
+      state.lastHeading = found.heading;
       state.lastButton = found.button;
       if (state.titleElement && !PLACEHOLDER_TITLE.test(found.title) && state.title !== found.title) {
         state.title = found.title;
@@ -161,9 +180,10 @@
       }
       return found;
     }
-    if (state.lastGrid?.isConnected) {
+    if (state.section?.isConnected && state.lastHeading?.isConnected) {
       const button = state.lastButton?.isConnected ? state.lastButton : null;
-      return { grid: state.lastGrid, button };
+      if (!button) return { section: state.section, heading: state.lastHeading, button: null, count: 0 };
+      return { section: state.section, heading: state.lastHeading, button };
     }
     return null;
   }
@@ -185,21 +205,21 @@
       const check = () => {
         const current = currentSection(state);
         if (!current) return;
-        const count = countCards(current.grid);
+        const count = countCards(current);
         if (count > previousCount) finish({ grew: true, count, current });
       };
 
       const first = currentSection(state);
-      if (first?.grid) {
+      if (first?.section) {
         observer = new MutationObserver(check);
-        observer.observe(first.grid, { childList: true, subtree: false });
+        observer.observe(first.section, { childList: true, subtree: true });
       }
       const pollTimer = setInterval(check, 250);
       const timeoutTimer = setTimeout(() => {
         const current = currentSection(state);
         finish({
           grew: false,
-          count: current ? countCards(current.grid) : previousCount,
+          count: current ? countCards(current) : previousCount,
           current,
         });
       }, GROWTH_TIMEOUT_MS);
@@ -224,7 +244,7 @@
       const current = rediscover(state);
       if (!current) return null;
       state.section = current.section;
-      state.lastGrid = current.grid;
+      state.lastHeading = current.heading;
       state.lastButton = current.button;
       if (buttonReady(current.button)) return current;
       await sleep(250);
@@ -257,7 +277,7 @@
           break;
         }
 
-        const count = countCards(current.grid);
+        const count = countCards(current);
         state.countElement.textContent = String(count);
         if (count >= target) {
           const extra = count - target;
@@ -275,7 +295,7 @@
           break;
         }
 
-        const before = countCards(ready.grid);
+        const before = countCards(ready);
         setRowStatus(state, `加载中：${before} / ${target}`);
         ready.button.click();
         const result = await waitForGrowth(state, before);
@@ -367,7 +387,7 @@
       running: false,
       queued: false,
       cancelRequested: false,
-      lastGrid: section.grid,
+      lastHeading: section.heading,
       lastButton: section.button,
       countElement,
       targetInput,
@@ -523,7 +543,7 @@
     }
     rows.forEach((state) => {
       const current = currentSection(state);
-      if (current && !state.running) state.countElement.textContent = String(countCards(current.grid));
+      if (current && !state.running) state.countElement.textContent = String(countCards(current));
     });
   }, 1000);
   console.info('[MissAV Auto Loader] ready', {

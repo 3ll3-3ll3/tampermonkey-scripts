@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>全局番号过滤器</title>
+  <link rel="stylesheet" href="filter.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand-mark" aria-hidden="true">番</div>
+    <div>
+      <h1>全局番号过滤器</h1>
+      <p>独立 Chrome 扩展 · MissAV Manager v0.5.13 规则兼容</p>
+    </div>
+    <span class="privacy-badge">完全本地处理</span>
+  </header>
+
+  <main>
+    <section class="summary" aria-label="处理统计">
+      <div><strong id="source-chars">0</strong><span>输入字符</span></div>
+      <div><strong id="result-count">0</strong><span>有效番号</span></div>
+      <div><strong id="trusted-count">0</strong><span>可信链接</span></div>
+      <p id="status" role="status">就绪</p>
+    </section>
+
+    <section class="workspace">
+      <article class="editor-card" id="drop-zone">
+        <div class="card-heading">
+          <div><h2>原始文字</h2><p>粘贴任意长度文字，或拖入多个文件</p></div>
+          <label class="file-button">导入文件<input id="files" type="file" multiple accept=".txt,.html,.htm,.md,.json,.csv,.log,text/plain,text/html,text/csv,application/json"></label>
+        </div>
+        <textarea id="source" aria-label="原始文字" placeholder="支持 TG、网页文本、HTML、Markdown、Raindrop CSV、MissAV 链接或番号……" spellcheck="false" autofocus></textarea>
+      </article>
+
+      <article class="editor-card result-card">
+        <div class="card-heading">
+          <div><h2>过滤结果</h2><p>按首次出现顺序去重，一行一个</p></div>
+          <span id="format-note">普通文本</span>
+        </div>
+        <textarea id="result" aria-label="过滤结果" placeholder="识别结果会显示在这里" spellcheck="false" readonly></textarea>
+      </article>
+    </section>
+
+    <section class="toolbar" aria-label="操作">
+      <button id="run" class="primary" type="button">执行过滤</button>
+      <button id="copy" type="button">复制结果</button>
+      <button id="download" type="button">下载 TXT</button>
+      <button id="clear" class="danger" type="button">清空</button>
+      <label class="auto-filter"><input id="auto-filter" type="checkbox" checked> 输入后自动过滤</label>
+      <span class="shortcut">Ctrl + Enter 执行</span>
+    </section>
+
+    <p class="privacy-note">扩展不读取当前网页，不请求网络权限，不保存输入历史。关闭本页后，输入内容即从内存中释放。</p>
+  </main>
+
+  <script src="filter-core.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
