@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  console.info('[MissAV Auto Loader] v1.4.3 starting', location.href);
+  console.info('[MissAV Auto Loader] v1.4.0 starting', location.href);
 
   const EXISTING = window.__missavAutoLoader;
   if (EXISTING?.show) {
@@ -18,9 +18,6 @@
   const DEFAULT_INTERVAL_MS = 900;
   const GROWTH_TIMEOUT_MS = 20000;
   const MAX_STALL_RETRIES = 3;
-  const DISCOVERY_RETRY_MS = 400;
-  const DISCOVERY_TIMEOUT_MS = 15000;
-  const DOM_SETTLE_MS = 220;
   const HAS_MENU_COMMAND = typeof GM_registerMenuCommand === 'function';
 
   let destroyed = false;
@@ -30,9 +27,6 @@
   let listElement;
   let summaryElement;
   let syncTimer;
-  let discoveryTimer;
-  let initialDiscoveryTimer;
-  let domObserver;
 
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -41,7 +35,7 @@
   }
 
   function loadMoreButtons() {
-    return [...document.querySelectorAll('a, button, [role="button"]')].filter((element) => {
+    return [...document.querySelectorAll('a, button')].filter((element) => {
       const label = normalizedText(element)
         || element.getAttribute('aria-label')
         || element.getAttribute('title')
@@ -76,17 +70,15 @@
   }
 
   function findSectionContainer(button) {
-    let control = button.parentElement;
-    for (let depth = 0; control && control !== document.documentElement && depth < 12; depth++) {
-      let sibling = control.previousElementSibling;
-      while (sibling) {
-        if (sibling.querySelector?.('h1, h2, h3, h4, h5, h6')
-          && sibling.querySelector?.('.grid, [class*="grid-cols-"]')) return sibling;
-        sibling = sibling.previousElementSibling;
-      }
-      if (control.querySelector?.('h1, h2, h3, h4, h5, h6')
-        && control.querySelector?.('.grid, [class*="grid-cols-"]')) return control;
-      control = control.parentElement;
+    const control = button.parentElement;
+    let candidate = control?.previousElementSibling || null;
+
+    if (candidate?.querySelector('h1, h2, h3, h4, h5, h6')) return candidate;
+
+    let sibling = control?.previousElementSibling || null;
+    while (sibling) {
+      if (sibling.querySelector?.('h1, h2, h3, h4, h5, h6')) return sibling;
+      sibling = sibling.previousElementSibling;
     }
     return null;
   }
@@ -104,8 +96,7 @@
     return loadMoreButtons()
       .map((button, index) => {
         const section = findSectionContainer(button);
-        const headings = section ? [...section.querySelectorAll('h1, h2, h3, h4, h5, h6')] : [];
-        const heading = headings[headings.length - 1] || null;
+        const heading = section?.querySelector('h1, h2, h3, h4, h5, h6');
         const title = normalizedText(heading) || '未命名板块';
         const grid = section ? bestGrid(section) : null;
         if (!section || !grid) return null;
@@ -113,7 +104,7 @@
         const ordinal = (titleCounts.get(title) || 0) + 1;
         titleCounts.set(title, ordinal);
         return {
-          key: `${title.toLocaleLowerCase()}::${ordinal}`,
+          key: `section::${index + 1}`,
           title: ordinal === 1 ? title : `${title} (${ordinal})`,
           rawTitle: title,
           ordinal,
@@ -126,11 +117,8 @@
       .filter(Boolean);
   }
 
-  function rediscover(state) {
-    const sections = discoverSections();
-    return sections.find((section) => section.key === state.key)
-      || sections.find((section) => section.rawTitle === state.rawTitle && section.ordinal === state.ordinal)
-      || null;
+  function rediscover(key) {
+    return discoverSections().find((section) => section.key === key) || null;
   }
 
   function buttonReady(button) {
@@ -142,27 +130,17 @@
   }
 
   function currentSection(state) {
-    const found = rediscover(state);
+    const found = rediscover(state.key);
     if (found) {
-      state.section = found.section;
       state.lastGrid = found.grid;
-      state.lastButton = found.button;
       if (state.titleElement && !PLACEHOLDER_TITLE.test(found.title) && state.title !== found.title) {
         state.title = found.title;
         state.titleElement.textContent = found.title;
       }
       return found;
     }
-    if (state.section?.isConnected) {
-      const replacementGrid = bestGrid(state.section);
-      if (replacementGrid) {
-        state.lastGrid = replacementGrid;
-        state.lastButton = null;
-        return { section: state.section, grid: replacementGrid, button: null };
-      }
-    }
     if (state.lastGrid?.isConnected) {
-      return { grid: state.lastGrid, button: state.lastButton?.isConnected ? state.lastButton : null };
+      return { grid: state.lastGrid, button: null };
     }
     return null;
   }
@@ -191,7 +169,7 @@
       const first = currentSection(state);
       if (first?.grid) {
         observer = new MutationObserver(check);
-        observer.observe(first.grid, { childList: true, subtree: true });
+        observer.observe(first.grid, { childList: true, subtree: false });
       }
       const pollTimer = setInterval(check, 250);
       const timeoutTimer = setTimeout(() => {
@@ -220,13 +198,10 @@
   async function waitUntilReady(state, maxWaitMs = 10000) {
     const deadline = Date.now() + maxWaitMs;
     while (!state.cancelRequested && Date.now() < deadline) {
-      const current = rediscover(state);
-      if (current) {
-        state.section = current.section;
-        state.lastGrid = current.grid;
-        state.lastButton = current.button;
-        if (buttonReady(current.button)) return current;
-      }
+      const current = rediscover(state.key);
+      if (!current) return null;
+      state.lastGrid = current.grid;
+      if (buttonReady(current.button)) return current;
       await sleep(250);
     }
     return null;
@@ -311,7 +286,6 @@
       state.startButton.disabled = false;
       state.stopButton.disabled = true;
       updateSummary();
-      scheduleDiscovery();
     }
   }
 
@@ -361,15 +335,11 @@
     const state = {
       key: section.key,
       title: section.title,
-      rawTitle: section.rawTitle,
-      ordinal: section.ordinal,
-      section: section.section,
       titleElement,
       running: false,
       queued: false,
       cancelRequested: false,
       lastGrid: section.grid,
-      lastButton: section.button,
       countElement,
       targetInput,
       statusElement: row.querySelector('.mal-status'),
@@ -403,71 +373,28 @@
     updateSummary();
   }
 
-  function scheduleDiscovery() {
-    if (destroyed || [...rows.values()].some((state) => state.running || state.queued)) return;
-    clearTimeout(discoveryTimer);
-    discoveryTimer = setTimeout(() => {
-      if (destroyed || [...rows.values()].some((state) => state.running || state.queued)) return;
-      const discovered = discoverSections();
-      const known = new Set(rows.keys());
-      const changed = discovered.length !== rows.size
-        || discovered.some((section) => !known.has(section.key));
-      if (changed) refresh();
-    }, DOM_SETTLE_MS);
-  }
-
-  function startInitialDiscovery() {
-    const deadline = Date.now() + DISCOVERY_TIMEOUT_MS;
-    const retry = () => {
-      if (destroyed) return;
-      if (!rows.size && ![...rows.values()].some((state) => state.running || state.queued)) refresh();
-      if (!rows.size && Date.now() < deadline) {
-        initialDiscoveryTimer = setTimeout(retry, DISCOVERY_RETRY_MS);
-      }
-    };
-    retry();
-  }
-
   function destroy() {
     stopAll();
     destroyed = true;
     clearInterval(syncTimer);
-    clearTimeout(discoveryTimer);
-    clearTimeout(initialDiscoveryTimer);
-    domObserver?.disconnect();
-    document.removeEventListener('keydown', onWakeHotkey, true);
     document.getElementById(PANEL_ID)?.remove();
     document.getElementById(STYLE_ID)?.remove();
     delete window.__missavAutoLoader;
   }
 
-  function ensureUiAttached() {
-    if (!style.isConnected) (document.head || document.documentElement).appendChild(style);
-    if (!panel.isConnected) (document.body || document.documentElement).appendChild(panel);
-  }
-
   function showPanel() {
-    ensureUiAttached();
     panel.style.display = 'block';
     refresh();
   }
 
   function hidePanel() {
-    ensureUiAttached();
     stopAll();
     panel.style.display = 'none';
   }
 
   function togglePanel() {
-    if (!panel.isConnected || panel.style.display === 'none' || getComputedStyle(panel).display === 'none') showPanel();
+    if (panel.style.display === 'none') showPanel();
     else hidePanel();
-  }
-
-  function onWakeHotkey(event) {
-    if (!event.altKey || !event.shiftKey || event.code !== 'KeyL') return;
-    event.preventDefault();
-    event.stopPropagation();
-    togglePanel();
   }
 
   const style = document.createElement('style');
@@ -530,7 +457,6 @@
   panel.querySelector('.mal-stop-all').addEventListener('click', stopAll);
   panel.querySelector('.mal-refresh').addEventListener('click', refresh);
   panel.querySelector('.mal-close').addEventListener('click', hidePanel);
-  document.addEventListener('keydown', onWakeHotkey, true);
 
   window.__missavAutoLoader = {
     show: showPanel,
@@ -552,20 +478,11 @@
   };
 
   if (HAS_MENU_COMMAND) {
-    GM_registerMenuCommand('打开/隐藏 MissAV Load More 面板（Alt+Shift+L）', togglePanel);
+    GM_registerMenuCommand('打开/隐藏 MissAV Load More 面板', togglePanel);
   }
 
   refresh();
-  startInitialDiscovery();
-  domObserver = new MutationObserver((mutations) => {
-    ensureUiAttached();
-    if (mutations.every((mutation) => panel.contains(mutation.target))) return;
-    scheduleDiscovery();
-  });
-  domObserver.observe(document.documentElement, { childList: true, subtree: true });
   syncTimer = setInterval(() => {
-    ensureUiAttached();
-    if (!rows.size) scheduleDiscovery();
     rows.forEach((state) => {
       const current = currentSection(state);
       if (current && !state.running) state.countElement.textContent = String(countCards(current.grid));
