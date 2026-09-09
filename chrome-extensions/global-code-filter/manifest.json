@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "全局番号过滤器",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "独立于任何网站的本地番号过滤器，兼容 MissAV Manager v0.5.13。",
   "action": {
     "default_title": "打开全局番号过滤器"

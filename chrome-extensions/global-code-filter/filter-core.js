@@ -48,12 +48,14 @@
     }
     slug = decodeURIComponent(slug)
       .replace(/-chinese-subtitle$/i, '')
-      .replace(/-uncensored-leak$/i, '')
+      .replace(/-uncensored-leak(?:ed)?$/i, '')
       .replace(/[_\s]+/g, '-')
       .trim();
     const fc2 = slug.match(/^fc2(?:-?ppv)?-?(\d{4,10})$/i);
     if (fc2) return `FC2-PPV-${fc2[1]}`;
-    const normal = slug.match(/^([a-z]{2,8})-?(\d{2,5})$/i);
+    const numericStudio = slug.match(/^\d{3}([a-z]{2,8})-(\d{2,5})$/i);
+    if (numericStudio) return `${numericStudio[1].toUpperCase()}-${numericStudio[2]}`;
+    const normal = slug.match(/^([a-z]{2,8})-?(\d{2,5})v?$/i);
     if (normal) return `${normal[1].toUpperCase()}-${normal[2]}`;
     return '';
   }
@@ -62,7 +64,7 @@
     let code = String(value || '').trim();
     const shouldExtract = /^https?:\/\//i.test(code)
       || /missav\./i.test(code)
-      || /-(chinese-subtitle|uncensored-leak)$/i.test(code);
+      || /-(chinese-subtitle|uncensored-leak(?:ed)?)$/i.test(code);
     const urlCode = shouldExtract ? extractCodeFromUrl(code) : '';
     if (urlCode) return normalizeCode(urlCode);
     code = decodeLooseText(code).toUpperCase().replace(/\s+/g, '');
@@ -70,7 +72,9 @@
       const number = extractFC2Number(code);
       if (number) return `FC2-PPV-${number}`;
     }
-    const match = code.match(/^([A-Z]{2,8})[-_]?(\d{2,5})$/);
+    const numericStudio = code.match(/^\d{3}([A-Z]{2,8})[-_](\d{2,5})$/);
+    if (numericStudio) return `${numericStudio[1]}-${numericStudio[2]}`;
+    const match = code.match(/^([A-Z]{2,8})[-_]?(\d{2,5})V?$/);
     if (match) return `${match[1]}-${match[2]}`;
     return code;
   }
@@ -98,7 +102,7 @@
   ]);
 
   function isNoiseCodePrefix(code) {
-    const match = String(code || '').toUpperCase().match(/^([A-Z]+)-([0-9]+)$/);
+    const match = String(code || '').toUpperCase().match(/^(?:\d{3})?([A-Z]+)-([0-9]+)V?$/);
     if (!match) return false;
     const prefix = match[1];
     const number = Number(match[2]);
@@ -144,7 +148,7 @@
     for (const match of source.matchAll(/(?:^|[^a-z0-9])fc2(?:[\s_-]*ppv)?[\s_-]*(\d{4,10})(?=$|[^0-9])/gi)) {
       matches.push(`FC2-PPV-${match[1]}`);
     }
-    for (const match of source.matchAll(/(?:^|[^a-z])([a-z]{2,8})[\s_-]+(\d{2,5})(?=$|[^0-9])/gi)) {
+    for (const match of source.matchAll(/(?:^|[^a-z0-9])((?:[a-z]{2,8}|\d{3}[a-z]{2,8}))[\s_-]+(\d{2,5}v?)(?=$|[^a-z0-9])/gi)) {
       const code = normalizeCode(`${match[1]}-${match[2]}`);
       if (isLikelyStandardCode(code)) matches.push(code);
     }
@@ -177,10 +181,10 @@
     for (const match of visibleText.matchAll(/(^|[^A-Za-z0-9])FC2(?:[ \t_-]*PPV)?[ \t_-]*(\d{4,10})(?=$|[^A-Za-z0-9])/gi)) {
       addCode(codes, `FC2-PPV-${match[2]}`, (match.index || 0) + match[1].length, false);
     }
-    for (const match of visibleText.matchAll(/(^|[^A-Za-z0-9])([A-Za-z]{2,8})[ \t_-]+(\d{2,5})(?=$|[^A-Za-z0-9])/g)) {
+    for (const match of visibleText.matchAll(/(^|[^A-Za-z0-9])((?:[A-Za-z]{2,8}|\d{3}[A-Za-z]{2,8}))[ \t_-]+(\d{2,5}V?)(?=$|[^A-Za-z0-9])/gi)) {
       addCode(codes, `${match[2]}-${match[3]}`, (match.index || 0) + match[1].length, false);
     }
-    for (const match of visibleText.matchAll(/(^|[^A-Za-z0-9])([A-Z]{2,8})(\d{2,5})(?=$|[^A-Za-z0-9])/g)) {
+    for (const match of visibleText.matchAll(/(^|[^A-Za-z0-9])([A-Z]{2,8})(\d{2,5}V?)(?=$|[^A-Za-z0-9])/g)) {
       addCode(codes, `${match[2]}-${match[3]}`, (match.index || 0) + match[1].length, false);
     }
     const seen = new Set();

@@ -5,6 +5,7 @@
 ## 功能
 
 - 兼容 MissAV Manager `v0.5.13` 的番号规范化、噪声过滤和顺序去重；
+- 支持片商数字前缀和版本尾码规范化：`300MIUM-1446` → `MIUM-1446`，`START-619V` → `START-619`；
 - 支持 TXT、HTML、HTM、MD、JSON、CSV、LOG 多文件导入与拖放；
 - 支持 Raindrop 官方 CSV 的结构化过滤；
 - 支持复制结果和下载 UTF-8 TXT；
