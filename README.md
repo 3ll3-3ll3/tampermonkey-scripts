@@ -6,9 +6,9 @@
 
 | 脚本 | 当前版本 | 用途 | 安装文件 |
 | --- | --- | --- | --- |
-| MissAV Auto Load More | 1.4.0 | 分别识别多个 Load More 板块，并自动加载到指定数量 | [`missav-auto-loader.user.js`](scripts/missav-auto-loader/missav-auto-loader.user.js) |
+| MissAV Auto Load More | 1.5.0 | 分别识别多个 Load More 板块，并自动加载到指定数量 | [`missav-auto-loader.user.js`](scripts/missav-auto-loader/missav-auto-loader.user.js) |
 | 123AV 首页工具 | 1.1.0 | 自动 Load More，并一键提取顶部轮播全部标题 | [`123av-home-tools.user.js`](scripts/123av-home-tools/123av-home-tools.user.js) |
-| MissAV 番号过滤器 | 1.0.0 | 复刻 MissAV Manager v0.5.13 的番号规范化、噪声过滤、去重、复制与 TXT 下载 | [`missav-code-filter.user.js`](scripts/missav-code-filter/missav-code-filter.user.js) |
+| 全局番号过滤器 | 1.1.0 | 可在任意普通网页手动打开；兼容 MissAV Manager v0.5.13 的番号规范化、噪声过滤、去重、复制与 TXT 下载 | [`missav-code-filter.user.js`](scripts/missav-code-filter/missav-code-filter.user.js) |
 
 ## 目录约定
 

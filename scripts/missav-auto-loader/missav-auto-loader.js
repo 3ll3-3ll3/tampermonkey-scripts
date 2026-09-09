@@ -1,11 +1,10 @@
 (() => {
   'use strict';
 
-  console.info('[MissAV Auto Loader] v1.4.0 starting', location.href);
+  console.info('[MissAV Auto Loader] v1.5.0 starting', location.href);
 
   const EXISTING = window.__missavAutoLoader;
   if (EXISTING?.show) {
-    EXISTING.show();
     EXISTING.refresh();
     return;
   }
@@ -27,6 +26,8 @@
   let listElement;
   let summaryElement;
   let syncTimer;
+  const sectionKeys = new WeakMap();
+  let nextSectionKey = 1;
 
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -35,7 +36,7 @@
   }
 
   function loadMoreButtons() {
-    return [...document.querySelectorAll('a, button')].filter((element) => {
+    return [...document.querySelectorAll('a, button, [role="button"]')].filter((element) => {
       const label = normalizedText(element)
         || element.getAttribute('aria-label')
         || element.getAttribute('title')
@@ -46,9 +47,9 @@
       // still a # link inside an absolutely positioned control immediately
       // after a titled card grid, so keep a structure-based fallback.
       const control = element.parentElement;
-      const section = control?.previousElementSibling;
+      const section = control?.previousElementSibling || control?.parentElement;
       return element.getAttribute('href') === '#'
-        && Boolean(control?.classList.contains('absolute'))
+        && Boolean(control?.classList.contains('absolute') || control?.querySelector?.('svg'))
         && Boolean(section?.querySelector('h1, h2, h3, h4, h5, h6'))
         && Boolean(section?.querySelector('.grid, [class*="grid-cols-"]'));
     });
@@ -57,7 +58,10 @@
   function isRealCard(element) {
     if (!(element instanceof HTMLElement)) return false;
     if (element.matches('template, script, style')) return false;
-    const links = [...element.querySelectorAll('a[href]')];
+    const links = [
+      ...(element.matches('a[href]') ? [element] : []),
+      ...element.querySelectorAll('a[href]'),
+    ];
     return links.some((link) => {
       const href = (link.getAttribute('href') || '').trim();
       return href && href !== '#' && !href.toLowerCase().startsWith('javascript:');
@@ -69,42 +73,52 @@
     return [...grid.children].filter(isRealCard).length;
   }
 
-  function findSectionContainer(button) {
-    const control = button.parentElement;
-    let candidate = control?.previousElementSibling || null;
+  function comesBefore(element, reference) {
+    return Boolean(element.compareDocumentPosition(reference) & Node.DOCUMENT_POSITION_FOLLOWING);
+  }
 
-    if (candidate?.querySelector('h1, h2, h3, h4, h5, h6')) return candidate;
+  function bestGrid(section, button) {
+    const candidates = [
+      ...section.querySelectorAll('.grid, [class*="grid-cols-"]'),
+    ].filter((grid) => grid !== button && !grid.contains(button) && comesBefore(grid, button));
+    if (!candidates.length) return null;
+    return candidates.sort((a, b) => countCards(b) - countCards(a))[0];
+  }
 
-    let sibling = control?.previousElementSibling || null;
-    while (sibling) {
-      if (sibling.querySelector?.('h1, h2, h3, h4, h5, h6')) return sibling;
-      sibling = sibling.previousElementSibling;
+  function findSection(button) {
+    let candidate = button.parentElement;
+    for (let depth = 0; candidate && candidate !== document.documentElement && depth < 9; depth++) {
+      const headings = [...candidate.querySelectorAll('h1, h2, h3, h4, h5, h6')]
+        .filter((heading) => comesBefore(heading, button));
+      const grid = bestGrid(candidate, button);
+      if (headings.length && grid && countCards(grid) > 0) {
+        return { root: candidate, heading: headings[headings.length - 1], grid };
+      }
+      candidate = candidate.parentElement;
     }
     return null;
   }
 
-  function bestGrid(section) {
-    const candidates = [
-      ...section.querySelectorAll('.grid, [class*="grid-cols-"]'),
-    ];
-    if (!candidates.length) return null;
-    return candidates.sort((a, b) => countCards(b) - countCards(a))[0];
+  function sectionKey(root) {
+    if (!sectionKeys.has(root)) sectionKeys.set(root, `section::${nextSectionKey++}`);
+    return sectionKeys.get(root);
   }
 
   function discoverSections() {
     const titleCounts = new Map();
     return loadMoreButtons()
-      .map((button, index) => {
-        const section = findSectionContainer(button);
-        const heading = section?.querySelector('h1, h2, h3, h4, h5, h6');
+      .map((button) => {
+        const found = findSection(button);
+        const section = found?.root || null;
+        const heading = found?.heading || null;
         const title = normalizedText(heading) || '未命名板块';
-        const grid = section ? bestGrid(section) : null;
+        const grid = found?.grid || null;
         if (!section || !grid) return null;
 
         const ordinal = (titleCounts.get(title) || 0) + 1;
         titleCounts.set(title, ordinal);
         return {
-          key: `section::${index + 1}`,
+          key: sectionKey(section),
           title: ordinal === 1 ? title : `${title} (${ordinal})`,
           rawTitle: title,
           ordinal,
@@ -117,8 +131,12 @@
       .filter(Boolean);
   }
 
-  function rediscover(key) {
-    return discoverSections().find((section) => section.key === key) || null;
+  function rediscover(state) {
+    const sections = discoverSections();
+    return sections.find((section) => section.section === state.section)
+      || sections.find((section) => section.key === state.key)
+      || sections.find((section) => section.rawTitle === state.rawTitle && section.ordinal === state.ordinal)
+      || null;
   }
 
   function buttonReady(button) {
@@ -130,9 +148,13 @@
   }
 
   function currentSection(state) {
-    const found = rediscover(state.key);
+    const found = rediscover(state);
     if (found) {
+      state.section = found.section;
+      state.rawTitle = found.rawTitle;
+      state.ordinal = found.ordinal;
       state.lastGrid = found.grid;
+      state.lastButton = found.button;
       if (state.titleElement && !PLACEHOLDER_TITLE.test(found.title) && state.title !== found.title) {
         state.title = found.title;
         state.titleElement.textContent = found.title;
@@ -140,7 +162,8 @@
       return found;
     }
     if (state.lastGrid?.isConnected) {
-      return { grid: state.lastGrid, button: null };
+      const button = state.lastButton?.isConnected ? state.lastButton : null;
+      return { grid: state.lastGrid, button };
     }
     return null;
   }
@@ -198,9 +221,11 @@
   async function waitUntilReady(state, maxWaitMs = 10000) {
     const deadline = Date.now() + maxWaitMs;
     while (!state.cancelRequested && Date.now() < deadline) {
-      const current = rediscover(state.key);
+      const current = rediscover(state);
       if (!current) return null;
+      state.section = current.section;
       state.lastGrid = current.grid;
+      state.lastButton = current.button;
       if (buttonReady(current.button)) return current;
       await sleep(250);
     }
@@ -335,11 +360,15 @@
     const state = {
       key: section.key,
       title: section.title,
+      rawTitle: section.rawTitle,
+      ordinal: section.ordinal,
+      section: section.section,
       titleElement,
       running: false,
       queued: false,
       cancelRequested: false,
       lastGrid: section.grid,
+      lastButton: section.button,
       countElement,
       targetInput,
       statusElement: row.querySelector('.mal-status'),
@@ -483,6 +512,15 @@
 
   refresh();
   syncTimer = setInterval(() => {
+    if (![...rows.values()].some((state) => state.running || state.queued)) {
+      const discovered = discoverSections();
+      const knownRoots = new Set([...rows.values()].map((state) => state.section));
+      if ((rows.size === 0 && discovered.length > 0)
+        || discovered.some((section) => !knownRoots.has(section.section))) {
+        refresh();
+        return;
+      }
+    }
     rows.forEach((state) => {
       const current = currentSection(state);
       if (current && !state.running) state.countElement.textContent = String(countCards(current.grid));

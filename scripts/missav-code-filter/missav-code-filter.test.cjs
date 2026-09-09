@@ -66,3 +66,14 @@ test('replays the v0.5.13 59-row feedback classification', () => {
   const rejectedRows = rejected.map((code, index) => `${index + 100},"普通资料 ${code}",,,https://example.com/thread/${code.toLowerCase()},学习资料,,2026-01-01,https://example.com/assets/${code.toLowerCase()}.jpg,,false`);
   assert.deepEqual(core.parseInputCodeList([header, ...confirmedRows, ...rejectedRows].join('\n')), confirmed);
 });
+
+test('handles million-character pasted text without truncation', () => {
+  const lines = [];
+  for (let index = 0; index < 100000; index++) lines.push(`普通文字 ${index}`);
+  lines.splice(100, 0, 'abf-354');
+  lines.splice(50000, 0, 'FC2 PPV 4625027');
+  lines.push('https://missav.ai/cn/sone-314-chinese-subtitle');
+  const input = lines.join('\n');
+  assert.ok(input.length > 1000000);
+  assert.deepEqual(core.parseInputCodeList(input), ['ABF-354', 'FC2-PPV-4625027', 'SONE-314']);
+});
