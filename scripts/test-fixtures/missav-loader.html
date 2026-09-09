@@ -13,21 +13,37 @@
         section.className = 'relative section-wrapper';
         section.innerHTML = `<div class="content"><h2>${name}</h2><div class="grid grid-cols-4"></div></div><div class="absolute load-control"><a href="#">載入更多</a></div>`;
         const grid = section.querySelector('.grid');
-        const addCards = () => {
+        const addCards = (targetGrid) => {
           for (let index = 0; index < 12; index++) {
             const card = document.createElement('article');
-            card.innerHTML = `<a href="/video/${grid.children.length + 1}">测试卡片 ${grid.children.length + 1}</a>`;
-            grid.appendChild(card);
+            card.innerHTML = `<a href="/video/${targetGrid.children.length + 1}">测试卡片 ${targetGrid.children.length + 1}</a>`;
+            targetGrid.appendChild(card);
           }
         };
-        addCards();
-        section.querySelector('a[href="#"]').addEventListener('click', (event) => {
-          event.preventDefault();
-          setTimeout(addCards, 30);
-        });
+        const bindLoadButton = () => {
+          const button = section.querySelector('a[href="#"]');
+          button.addEventListener('click', (event) => {
+            event.preventDefault();
+            setTimeout(() => {
+              const oldGrid = section.querySelector('.grid');
+              const newGrid = oldGrid.cloneNode(true);
+              addCards(newGrid);
+              oldGrid.replaceWith(newGrid);
+              const replacement = button.cloneNode(true);
+              button.replaceWith(replacement);
+              if (name === '推荐给你' && newGrid.children.length >= 48) {
+                replacement.parentElement.remove();
+                return;
+              }
+              bindLoadButton();
+            }, 80);
+          });
+        };
+        addCards(grid);
+        bindLoadButton();
         root.appendChild(section);
       }
-    }, 250);
+    }, 1200);
   </script>
   <script src="../missav-auto-loader/missav-auto-loader.js"></script>
 </body>
