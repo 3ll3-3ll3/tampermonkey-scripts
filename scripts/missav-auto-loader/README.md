@@ -13,7 +13,7 @@
 ## 推荐使用：Tampermonkey 本地联动
 
 安装 `missav-auto-loader.user.js`。它是完整内嵌安装包，不依赖
-`file://` 权限。当前版本为 `1.4.2`，使用油猴沙箱运行，避免站点 CSP 阻止脚本启动；
+`file://` 权限。当前版本为 `1.4.3`，使用油猴沙箱运行，避免站点 CSP 阻止脚本启动；
 它以稳定版 `1.4.0` 为基线，增加延迟识别、DOM 变化监听、按钮/网格被网站替换后的重新绑定，
 以及面板或样式被页面重绘移除后的自动修复。
 Chrome 138 及以上需要在 Tampermonkey 扩展详情页打开“允许用户脚本”。
@@ -21,6 +21,7 @@ Chrome 138 及以上需要在 Tampermonkey 扩展详情页打开“允许用户�
 脚本默认静默运行，不会主动弹出面板。需要使用时，点击浏览器工具栏中的 Tampermonkey
 图标，再选择“打开/隐藏 MissAV Load More 面板”。面板右上角的 `×` 会停止任务并隐藏面板。
 如果 Tampermonkey 菜单没有唤醒面板，可以按 `Alt+Shift+L` 打开或隐藏；该快捷键不会启动加载任务。
+安装包带有 GitHub `updateURL` 和 `downloadURL`，安装本版后可直接使用 Tampermonkey 的“检查脚本更新”。
 
 以后 Codex 修改 `missav-auto-loader.js` 后，运行 `node build-userscript.mjs` 生成新版安装包，
 再由用户在 Tampermonkey 更新确认页点击一次“更新”。

@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  console.info('[MissAV Auto Loader] v1.4.2 starting', location.href);
+  console.info('[MissAV Auto Loader] v1.4.3 starting', location.href);
 
   const EXISTING = window.__missavAutoLoader;
   if (EXISTING?.show) {
