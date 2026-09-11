@@ -1,14 +1,15 @@
 // ==UserScript==
 // @name         MissAV 自动 Load More
 // @namespace    wjl.local
-// @version      1.4.5
-// @description  自动识别 MissAV 的多个 Load More 板块，并分别加载到指定总数。
+// @version      1.5.0
+// @description  自动加载 MissAV 多个板块到指定总数，并提取、复制已加载卡片标题。
 // @match        https://missav.ai/*
 // @match        https://*.missav.ai/*
 // @updateURL    https://raw.githubusercontent.com/3ll3-3ll3/tampermonkey-scripts/main/scripts/missav-auto-loader/missav-auto-loader.user.js
 // @downloadURL  https://raw.githubusercontent.com/3ll3-3ll3/tampermonkey-scripts/main/scripts/missav-auto-loader/missav-auto-loader.user.js
 // @run-at       document-end
 // @grant        GM_addStyle
+// @grant        GM_setClipboard
 // @grant        GM_registerMenuCommand
 // @noframes
 // ==/UserScript==
@@ -16,7 +17,7 @@
 (() => {
   'use strict';
 
-  console.info('[MissAV Auto Loader] v1.4.5 starting', location.href);
+  console.info('[MissAV Auto Loader] v1.5.0 starting', location.href);
 
   const EXISTING = window.__missavAutoLoader;
   if (EXISTING?.show) {
@@ -42,6 +43,8 @@
   let intervalInput;
   let listElement;
   let summaryElement;
+  let allTitlesStatus;
+  let allTitlesOutput;
   let syncTimer;
   let uiObserver;
   let observedRoot;
@@ -83,9 +86,102 @@
     });
   }
 
+  function cardElements(grid) {
+    if (!grid) return [];
+    return [...grid.children].filter(isRealCard);
+  }
+
   function countCards(grid) {
-    if (!grid) return 0;
-    return [...grid.children].filter(isRealCard).length;
+    return cardElements(grid).length;
+  }
+
+  function titleFromCard(card) {
+    const textSelectors = [
+      '.card-title', '.video-title', '[class*="title"]',
+      'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+    ];
+    for (const selector of textSelectors) {
+      const value = normalizedText(card.querySelector(selector));
+      if (value) return value;
+    }
+    for (const link of card.querySelectorAll('a[href]')) {
+      const value = normalizedText(link);
+      if (value && !LOAD_MORE_TEXT.test(value)) return value;
+    }
+    for (const element of card.querySelectorAll('[data-title], [title], img[alt]')) {
+      const value = element.getAttribute('data-title')
+        || element.getAttribute('title')
+        || element.getAttribute('alt')
+        || '';
+      if (value.trim()) return value.replace(/\s+/g, ' ').trim();
+    }
+    return normalizedText(card);
+  }
+
+  function extractTitles(grid) {
+    return cardElements(grid).map(titleFromCard).filter(Boolean);
+  }
+
+  function copyText(text) {
+    if (typeof GM_setClipboard === 'function') {
+      GM_setClipboard(text, 'text');
+      return Promise.resolve();
+    }
+    return navigator.clipboard.writeText(text);
+  }
+
+  function updateRowTitleResult(state, titles) {
+    state.extractedTitles = titles;
+    state.outputElement.value = titles.join('\n');
+    state.outputElement.hidden = false;
+    state.copyButton.disabled = !titles.length;
+    state.resultElement.textContent = titles.length
+      ? `已提取 ${titles.length} 条标题`
+      : '没有识别到可复制的标题';
+    state.resultElement.dataset.kind = titles.length ? 'done' : 'error';
+  }
+
+  async function extractAndCopySectionTitles(state, shouldCopy = true) {
+    const current = currentSection(state);
+    const titles = current?.grid ? extractTitles(current.grid) : [];
+    updateRowTitleResult(state, titles);
+    if (!shouldCopy || !titles.length) return titles;
+    try {
+      await copyText(titles.join('\n'));
+      state.resultElement.textContent = `已提取并复制 ${titles.length} 条标题`;
+    } catch (error) {
+      console.error('[MissAV Auto Loader] copy failed', error);
+      state.resultElement.textContent = `已提取 ${titles.length} 条标题，但自动复制失败`;
+      state.resultElement.dataset.kind = 'error';
+    }
+    return titles;
+  }
+
+  async function extractAndCopyAllTitles() {
+    const titles = [];
+    for (const state of rows.values()) {
+      const current = currentSection(state);
+      const sectionTitles = current?.grid ? extractTitles(current.grid) : [];
+      updateRowTitleResult(state, sectionTitles);
+      titles.push(...sectionTitles);
+    }
+    allTitlesOutput.value = titles.join('\n');
+    allTitlesOutput.hidden = false;
+    if (!titles.length) {
+      allTitlesStatus.textContent = '没有识别到可复制的标题';
+      allTitlesStatus.dataset.kind = 'error';
+      return titles;
+    }
+    try {
+      await copyText(allTitlesOutput.value);
+      allTitlesStatus.textContent = `已汇总并复制 ${titles.length} 条标题`;
+      allTitlesStatus.dataset.kind = 'done';
+    } catch (error) {
+      console.error('[MissAV Auto Loader] copy all failed', error);
+      allTitlesStatus.textContent = `已汇总 ${titles.length} 条标题，但自动复制失败`;
+      allTitlesStatus.dataset.kind = 'error';
+    }
+    return titles;
   }
 
   function findSectionContainer(button) {
@@ -301,6 +397,7 @@
       console.error('[MissAV Auto Loader]', error);
       setRowStatus(state, `错误：${error?.message || error}`, 'error');
     } finally {
+      if (!destroyed && !state.cancelRequested) await extractAndCopySectionTitles(state, true);
       state.running = false;
       state.startButton.disabled = false;
       state.stopButton.disabled = true;
@@ -309,12 +406,19 @@
   }
 
   function enqueue(state) {
-    if (destroyed || state.running || state.queued) return;
+    if (destroyed || state.running || state.queued) return false;
     state.cancelRequested = false;
     state.queued = true;
     setRowStatus(state, '已排队');
     updateSummary();
     queue = queue.then(() => runSection(state));
+    return true;
+  }
+
+  function enqueueAll() {
+    let queuedAny = false;
+    rows.forEach((state) => { queuedAny = enqueue(state) || queuedAny; });
+    if (queuedAny) queue = queue.then(extractAndCopyAllTitles);
   }
 
   function stop(state) {
@@ -342,6 +446,11 @@
         <button class="mal-stop" type="button" disabled>停止</button>
       </div>
       <div class="mal-status">等待设置</div>
+      <div class="mal-result-actions">
+        <button class="mal-copy" type="button">提取并复制标题</button>
+      </div>
+      <div class="mal-result-status">尚未提取标题</div>
+      <textarea class="mal-output" readonly hidden></textarea>
     `;
 
     const titleElement = row.querySelector('.mal-title');
@@ -362,11 +471,16 @@
       countElement,
       targetInput,
       statusElement: row.querySelector('.mal-status'),
+      resultElement: row.querySelector('.mal-result-status'),
+      outputElement: row.querySelector('.mal-output'),
       startButton: row.querySelector('.mal-start'),
       stopButton: row.querySelector('.mal-stop'),
+      copyButton: row.querySelector('.mal-copy'),
+      extractedTitles: [],
     };
     state.startButton.addEventListener('click', () => enqueue(state));
     state.stopButton.addEventListener('click', () => stop(state));
+    state.copyButton.addEventListener('click', () => extractAndCopySectionTitles(state, true));
     return { row, state };
   }
 
@@ -480,6 +594,13 @@
     #${PANEL_ID} .mal-status { margin-top: 7px; color: #93c5fd; font-size: 12px; }
     #${PANEL_ID} .mal-status[data-kind="done"] { color: #86efac; }
     #${PANEL_ID} .mal-status[data-kind="error"] { color: #fca5a5; }
+    #${PANEL_ID} .mal-result-actions { margin-top: 7px; }
+    #${PANEL_ID} .mal-copy, #${PANEL_ID} .mal-copy-all { background: #0f766e; }
+    #${PANEL_ID} .mal-result-status, #${PANEL_ID} .mal-all-status { margin-top: 6px; color: #93c5fd; font-size: 12px; }
+    #${PANEL_ID} [data-kind="done"] { color: #86efac; }
+    #${PANEL_ID} [data-kind="error"] { color: #fca5a5; }
+    #${PANEL_ID} .mal-output, #${PANEL_ID} .mal-all-output { width: 100%; min-height: 92px; margin-top: 6px; padding: 7px; resize: vertical; color: #e5e7eb; background: #0f172a; border: 1px solid #475569; border-radius: 6px; font: 12px/1.45 ui-monospace, Consolas, monospace; }
+    #${PANEL_ID} .mal-all-results { padding: 9px; margin-top: 9px; background: #172033; border: 1px solid #334155; border-radius: 9px; }
     #${PANEL_ID} .mal-note, #${PANEL_ID} .mal-empty { margin-top: 9px; color: #94a3b8; font-size: 12px; }
   `;
   (document.head || document.documentElement).appendChild(style);
@@ -508,7 +629,12 @@
         <label class="mal-interval">间隔 <input type="number" min="300" max="10000" step="100" value="${DEFAULT_INTERVAL_MS}"> ms</label>
       </div>
       <div class="mal-list"></div>
-      <div class="mal-note">按卡片总数停止；每次通常增加 12 条，所以可能略微超过目标。多个板块会串行加载，降低限流风险。</div>
+      <div class="mal-all-results">
+        <button class="mal-copy-all" type="button">汇总并复制全部标题</button>
+        <div class="mal-all-status">“全部开始”完成后会自动汇总并复制</div>
+        <textarea class="mal-all-output" readonly hidden></textarea>
+      </div>
+      <div class="mal-note">按卡片总数停止；完成后自动提取并复制标题。多个板块串行加载，“全部开始”结束后复制所有板块标题。</div>
     </div>
   `;
   document.documentElement.appendChild(panel);
@@ -516,9 +642,12 @@
   intervalInput = panel.querySelector('.mal-interval input');
   listElement = panel.querySelector('.mal-list');
   summaryElement = panel.querySelector('.mal-summary');
-  panel.querySelector('.mal-start-all').addEventListener('click', () => rows.forEach(enqueue));
+  allTitlesStatus = panel.querySelector('.mal-all-status');
+  allTitlesOutput = panel.querySelector('.mal-all-output');
+  panel.querySelector('.mal-start-all').addEventListener('click', enqueueAll);
   panel.querySelector('.mal-stop-all').addEventListener('click', stopAll);
   panel.querySelector('.mal-refresh').addEventListener('click', refresh);
+  panel.querySelector('.mal-copy-all').addEventListener('click', extractAndCopyAllTitles);
   panel.querySelector('.mal-close').addEventListener('click', hidePanel);
   document.addEventListener('keydown', onWakeHotkey, true);
 
@@ -528,6 +657,7 @@
     toggle: togglePanel,
     refresh,
     stopAll,
+    extractAllTitles: extractAndCopyAllTitles,
     destroy,
     status() {
       return [...rows.values()].map((state) => ({

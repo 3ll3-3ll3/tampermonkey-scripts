@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><title>WAIT: 123AV 标题复制</title>
+  <script>
+    window.GM_registerMenuCommand = () => {};
+    window.GM_setClipboard = (text) => { window.__copiedText = text; };
+  </script>
+</head>
+<body>
+  <main id="sections"></main>
+  <script>
+    const root = document.querySelector('#sections');
+    for (const name of ['最新影片', '热门影片']) {
+      const section = document.createElement('section');
+      section.className = 'rec__section';
+      section.innerHTML = `<div class="section__head"><h2>${name}</h2></div><div class="rec__grid"></div><button class="rec__more-btn">Load More</button>`;
+      const grid = section.querySelector('.rec__grid');
+      const addCards = () => {
+        for (let index = 0; index < 4; index++) {
+          const number = grid.children.length + 1;
+          const card = document.createElement('article');
+          card.className = 'card';
+          card.innerHTML = `<a href="/v/test-${number}"><span class="card__title">${name} 标题 ${number}</span></a>`;
+          grid.appendChild(card);
+        }
+      };
+      section.querySelector('.rec__more-btn').addEventListener('click', () => setTimeout(addCards, 20));
+      addCards();
+      root.appendChild(section);
+    }
+  </script>
+  <script src="../123av-home-tools/123av-home-tools.js"></script>
+  <script>
+    window.__av123HomeTools.show();
+    document.querySelectorAll('.aht-target').forEach((input) => { input.value = '8'; });
+    document.querySelector('.aht-interval input').value = '300';
+    document.querySelector('.aht-start-all').click();
+    const verify = setInterval(() => {
+      const lines = String(window.__copiedText || '').split('\n').filter(Boolean);
+      if (lines.length !== 16) return;
+      clearInterval(verify);
+      const outputLines = document.querySelector('.aht-all-output').value.split('\n').filter(Boolean);
+      document.title = outputLines.length === 16 && lines[0] === '最新影片 标题 1' && lines[15] === '热门影片 标题 8'
+        ? 'PASS: 123AV 加载后汇总复制 16 条标题'
+        : 'FAIL: 123AV 标题内容不正确';
+    }, 50);
+    setTimeout(() => {
+      if (!document.title.startsWith('PASS:')) document.title = 'FAIL: 123AV 未完成标题复制';
+    }, 5000);
+  </script>
+</body>
+</html>

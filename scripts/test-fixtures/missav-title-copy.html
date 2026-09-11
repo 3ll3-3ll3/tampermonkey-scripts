@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><title>WAIT: MissAV 标题复制</title>
+  <script>
+    window.GM_registerMenuCommand = () => {};
+    window.GM_setClipboard = (text) => { window.__copiedText = text; };
+  </script>
+</head>
+<body>
+  <main id="sections"></main>
+  <script>
+    const root = document.querySelector('#sections');
+    for (const name of ['推荐给你', '中文字幕']) {
+      const section = document.createElement('section');
+      section.innerHTML = `<div><h2>${name}</h2><div class="grid grid-cols-4"></div></div><div class="absolute"><a href="#">Load More</a></div>`;
+      const addCards = (grid) => {
+        for (let index = 0; index < 3; index++) {
+          const number = grid.children.length + 1;
+          const card = document.createElement('article');
+          card.innerHTML = `<a href="/cn/test-${number}"><span class="video-title">${name} 标题 ${number}</span></a>`;
+          grid.appendChild(card);
+        }
+      };
+      const bind = () => {
+        const button = section.querySelector('a[href="#"]');
+        button.addEventListener('click', (event) => {
+          event.preventDefault();
+          setTimeout(() => {
+            addCards(section.querySelector('.grid'));
+          }, 20);
+        }, { once: true });
+      };
+      const button = section.querySelector('a[href="#"]');
+      button.addEventListener('click', (event) => {
+        event.preventDefault();
+        setTimeout(() => addCards(section.querySelector('.grid')), 20);
+      });
+      addCards(section.querySelector('.grid'));
+      root.appendChild(section);
+    }
+  </script>
+  <script src="../missav-auto-loader/missav-auto-loader.js"></script>
+  <script>
+    window.__missavAutoLoader.show();
+    document.querySelectorAll('.mal-target').forEach((input) => { input.value = '6'; });
+    document.querySelector('.mal-interval input').value = '300';
+    document.querySelector('.mal-start-all').click();
+    const verify = setInterval(() => {
+      const lines = String(window.__copiedText || '').split('\n').filter(Boolean);
+      if (lines.length !== 12) return;
+      clearInterval(verify);
+      const outputLines = document.querySelector('.mal-all-output').value.split('\n').filter(Boolean);
+      document.title = outputLines.length === 12 && lines[0] === '推荐给你 标题 1' && lines[11] === '中文字幕 标题 6'
+        ? 'PASS: MissAV 加载后汇总复制 12 条标题'
+        : 'FAIL: MissAV 标题内容不正确';
+    }, 50);
+    setTimeout(() => {
+      if (!document.title.startsWith('PASS:')) document.title = 'FAIL: MissAV 未完成标题复制';
+    }, 5000);
+  </script>
+</body>
+</html>

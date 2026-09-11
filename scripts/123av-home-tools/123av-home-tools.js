@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  console.info('[123AV Home Tools] v1.1.0 starting', location.href);
+  console.info('[123AV Home Tools] v1.2.0 starting', location.href);
 
   const EXISTING = window.__av123HomeTools;
   if (EXISTING?.show) {
@@ -26,6 +26,8 @@
   let summaryElement;
   let featuredStatus;
   let featuredOutput;
+  let allTitlesStatus;
+  let allTitlesOutput;
   let syncTimer;
 
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -80,11 +82,96 @@
     return items;
   }
 
+  function cardElements(grid) {
+    if (!grid) return [];
+    const directCards = [...grid.querySelectorAll(':scope > .card')];
+    if (directCards.length) return directCards;
+    return [...grid.children].filter((child) => child.querySelector('a[href*="/v/"]'));
+  }
+
   function countCards(grid) {
-    if (!grid) return 0;
-    const directCards = grid.querySelectorAll(':scope > .card');
-    if (directCards.length) return directCards.length;
-    return [...grid.children].filter((child) => child.querySelector('a[href*="/v/"]')).length;
+    return cardElements(grid).length;
+  }
+
+  function titleFromCard(card) {
+    const textSelectors = [
+      '.card__title', '.card-title', '.video-title', '[class*="title"]',
+      'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+    ];
+    for (const selector of textSelectors) {
+      const value = normalizedText(card.querySelector(selector));
+      if (value) return value;
+    }
+    for (const link of card.querySelectorAll('a[href]')) {
+      const value = normalizedText(link);
+      if (value) return value;
+    }
+    for (const element of card.querySelectorAll('[data-title], [title], img[alt]')) {
+      const value = element.getAttribute('data-title')
+        || element.getAttribute('title')
+        || element.getAttribute('alt')
+        || '';
+      if (value.trim()) return value.replace(/\s+/g, ' ').trim();
+    }
+    return normalizedText(card);
+  }
+
+  function extractTitles(grid) {
+    return cardElements(grid).map(titleFromCard).filter(Boolean);
+  }
+
+  function updateRowTitleResult(state, titles) {
+    state.extractedTitles = titles;
+    state.outputElement.value = titles.join('\n');
+    state.outputElement.hidden = false;
+    state.copyButton.disabled = !titles.length;
+    state.resultElement.textContent = titles.length
+      ? `已提取 ${titles.length} 条标题`
+      : '没有识别到可复制的标题';
+    state.resultElement.dataset.kind = titles.length ? 'done' : 'error';
+  }
+
+  async function extractAndCopySectionTitles(state, shouldCopy = true) {
+    const current = currentSection(state);
+    const titles = current?.grid ? extractTitles(current.grid) : [];
+    updateRowTitleResult(state, titles);
+    if (!shouldCopy || !titles.length) return titles;
+    try {
+      await copyText(titles.join('\n'));
+      state.resultElement.textContent = `已提取并复制 ${titles.length} 条标题`;
+    } catch (error) {
+      console.error('[123AV Home Tools] copy failed', error);
+      state.resultElement.textContent = `已提取 ${titles.length} 条标题，但自动复制失败`;
+      state.resultElement.dataset.kind = 'error';
+    }
+    return titles;
+  }
+
+  async function extractAndCopyAllTitles() {
+    const titles = [];
+    for (const state of rows.values()) {
+      const current = currentSection(state);
+      const sectionTitles = current?.grid ? extractTitles(current.grid) : [];
+      updateRowTitleResult(state, sectionTitles);
+      titles.push(...sectionTitles);
+    }
+    allTitlesOutput.value = titles.join('\n');
+    allTitlesOutput.hidden = false;
+    if (!titles.length) {
+      allTitlesStatus.textContent = '没有识别到可复制的标题';
+      allTitlesStatus.dataset.kind = 'error';
+      return titles;
+    }
+    try {
+      await copyText(allTitlesOutput.value);
+      allTitlesStatus.textContent = `已汇总并复制 ${titles.length} 条标题`;
+      allTitlesStatus.dataset.kind = 'done';
+    } catch (error) {
+      console.error('[123AV Home Tools] copy all failed', error);
+      allTitlesStatus.textContent = `已汇总 ${titles.length} 条标题，但自动复制失败`;
+      allTitlesStatus.dataset.kind = 'error';
+    }
+    return titles;
   }
 
   function discoverSections() {
@@ -273,6 +360,7 @@
       console.error('[123AV Home Tools]', error);
       setRowStatus(state, `错误：${error?.message || error}`, 'error');
     } finally {
+      if (!destroyed && !state.cancelRequested) await extractAndCopySectionTitles(state, true);
       state.running = false;
       state.startButton.disabled = false;
       state.stopButton.disabled = true;
@@ -281,12 +369,19 @@
   }
 
   function enqueue(state) {
-    if (destroyed || state.running || state.queued) return;
+    if (destroyed || state.running || state.queued) return false;
     state.cancelRequested = false;
     state.queued = true;
     setRowStatus(state, '已排队');
     updateSummary();
     queue = queue.then(() => runSection(state));
+    return true;
+  }
+
+  function enqueueAll() {
+    let queuedAny = false;
+    rows.forEach((state) => { queuedAny = enqueue(state) || queuedAny; });
+    if (queuedAny) queue = queue.then(extractAndCopyAllTitles);
   }
 
   function stop(state) {
@@ -314,6 +409,11 @@
         <button class="aht-stop" type="button" disabled>停止</button>
       </div>
       <div class="aht-status">等待设置</div>
+      <div class="aht-result-actions">
+        <button class="aht-copy" type="button">提取并复制标题</button>
+      </div>
+      <div class="aht-result-status">尚未提取标题</div>
+      <textarea class="aht-output" readonly hidden></textarea>
     `;
 
     const titleElement = row.querySelector('.aht-title');
@@ -334,11 +434,16 @@
       countElement,
       targetInput,
       statusElement: row.querySelector('.aht-status'),
+      resultElement: row.querySelector('.aht-result-status'),
+      outputElement: row.querySelector('.aht-output'),
       startButton: row.querySelector('.aht-start'),
       stopButton: row.querySelector('.aht-stop'),
+      copyButton: row.querySelector('.aht-copy'),
+      extractedTitles: [],
     };
     state.startButton.addEventListener('click', () => enqueue(state));
     state.stopButton.addEventListener('click', () => stop(state));
+    state.copyButton.addEventListener('click', () => extractAndCopySectionTitles(state, true));
     return { row, state };
   }
 
@@ -419,6 +524,11 @@
     #${PANEL_ID} .aht-controls { display: flex; align-items: center; gap: 6px; }
     #${PANEL_ID} .aht-controls label { display: flex; align-items: center; gap: 5px; color: #cbd5e1; }
     #${PANEL_ID} .aht-status { margin-top: 7px; color: #93c5fd; font-size: 12px; }
+    #${PANEL_ID} .aht-result-actions { margin-top: 7px; }
+    #${PANEL_ID} .aht-copy, #${PANEL_ID} .aht-copy-all { background: #0f766e; }
+    #${PANEL_ID} .aht-result-status, #${PANEL_ID} .aht-all-status { margin-top: 6px; color: #93c5fd; font-size: 12px; }
+    #${PANEL_ID} .aht-output, #${PANEL_ID} .aht-all-output { width: 100%; min-height: 92px; margin-top: 6px; padding: 7px; resize: vertical; color: #e5e7eb; background: #0f172a; border: 1px solid #475569; border-radius: 6px; font: 12px/1.45 ui-monospace, Consolas, monospace; }
+    #${PANEL_ID} .aht-all-results { padding: 9px; margin-top: 9px; background: #172033; border: 1px solid #334155; border-radius: 9px; }
     #${PANEL_ID} [data-kind="done"] { color: #86efac; }
     #${PANEL_ID} [data-kind="error"] { color: #fca5a5; }
     #${PANEL_ID} .aht-note, #${PANEL_ID} .aht-empty { margin-top: 9px; color: #94a3b8; font-size: 12px; }
@@ -449,7 +559,12 @@
         <label class="aht-interval">间隔 <input type="number" min="300" max="10000" step="100" value="${DEFAULT_INTERVAL_MS}"> ms</label>
       </div>
       <div class="aht-list"></div>
-      <div class="aht-note">按卡片总数停止；每次通常增加 8 条，所以可能略微超过目标。多个板块会串行加载，降低限流风险。</div>
+      <div class="aht-all-results">
+        <button class="aht-copy-all" type="button">汇总并复制全部标题</button>
+        <div class="aht-all-status">“全部开始”完成后会自动汇总并复制</div>
+        <textarea class="aht-all-output" readonly hidden></textarea>
+      </div>
+      <div class="aht-note">按卡片总数停止；完成后自动提取并复制标题。多个板块串行加载，“全部开始”结束后复制所有板块标题。</div>
     </div>
   `;
   (document.body || document.documentElement).appendChild(panel);
@@ -459,10 +574,13 @@
   summaryElement = panel.querySelector('.aht-summary');
   featuredStatus = panel.querySelector('.aht-featured-status');
   featuredOutput = panel.querySelector('.aht-featured-output');
+  allTitlesStatus = panel.querySelector('.aht-all-status');
+  allTitlesOutput = panel.querySelector('.aht-all-output');
   panel.querySelector('.aht-extract').addEventListener('click', extractAndCopyFeatured);
-  panel.querySelector('.aht-start-all').addEventListener('click', () => rows.forEach(enqueue));
+  panel.querySelector('.aht-start-all').addEventListener('click', enqueueAll);
   panel.querySelector('.aht-stop-all').addEventListener('click', stopAll);
   panel.querySelector('.aht-refresh').addEventListener('click', refresh);
+  panel.querySelector('.aht-copy-all').addEventListener('click', extractAndCopyAllTitles);
   panel.querySelector('.aht-close').addEventListener('click', hidePanel);
 
   window.__av123HomeTools = {
@@ -472,6 +590,7 @@
     refresh,
     stopAll,
     extractFeatured: extractAndCopyFeatured,
+    extractAllTitles: extractAndCopyAllTitles,
     destroy,
     status() {
       return [...rows.values()].map((state) => ({
