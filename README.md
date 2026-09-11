@@ -13,6 +13,7 @@
 | 脚本 | 当前版本 | 用途 | 安装文件 |
 | --- | --- | --- | --- |
 | MissAV Auto Load More | 1.4.3 | 修复异步识别、页面重渲染和面板入口失联，并提供备用快捷键及自动更新地址 | [`missav-auto-loader.user.js`](scripts/missav-auto-loader/missav-auto-loader.user.js) |
+| LoveAV MissAV 最新脚本启动器 | 1.0.0 | 自动读取已授权 results 目录中的最新 LoveAV 脚本，校验后直接运行 | [`loveav-missav-runner.user.js`](scripts/loveav-missav-runner/loveav-missav-runner.user.js) |
 | 123AV 首页工具 | 1.1.0 | 自动 Load More，并一键提取顶部轮播全部标题 | [`123av-home-tools.user.js`](scripts/123av-home-tools/123av-home-tools.user.js) |
 
 ## 目录约定
