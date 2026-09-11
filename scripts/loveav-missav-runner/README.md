@@ -10,7 +10,7 @@
 
    `E:\Desktop\codex项目\LoveAV-Data\missav\results`
 
-4. 启动器递归扫描最新的 `*_missav-browser-script.js`，展示文件、修改时间、番号数量和 SHA-256。
+4. 启动器递归扫描最新的 `*_missav-browser-script.js`，展示文件、修改时间、番号数量和 SHA-256；旧的 Downloads 兜底脚本会被拒绝，需用当前 LoveAV 重新生成。
 5. 点击“运行最新脚本”，随后在原有“MissAV 导入脚本启动面板”继续处理。
 
 目录授权与 LoveAV 生成脚本使用同一 IndexedDB 配置，因此只需授权一次。Chrome 清理站点数据、使用隐私模式、更换 MissAV 域名或撤销目录权限后，需要重新授权。
@@ -20,6 +20,7 @@
 - 只匹配 `missav.ai` 与 `missav.ws` 页面。
 - 只扫描文件名以 `_missav-browser-script.js` 结尾的文件。
 - 运行前必须同时验证 `CODE_TEXT`、参考女优 Tag、Raindrop 黑名单和启动面板标记。
+- 只接受把结果强制写入 LoveAV 项目目录的新版脚本；检测到 `a.download` 普通下载兜底时拒绝运行。
 - 不使用 `javascript:`、远程脚本加载、Chrome 调试协议或剪贴板注入。
 - 文件仍由 LoveAV 在本地生成；油猴脚本只读取用户明确授权的目录。
 

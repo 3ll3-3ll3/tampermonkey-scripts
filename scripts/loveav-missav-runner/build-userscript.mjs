@@ -10,8 +10,8 @@ const source = await readFile(sourcePath, 'utf8');
 const header = `// ==UserScript==
 // @name         LoveAV MissAV 最新脚本启动器
 // @namespace    wjl.local
-// @version      1.0.0
-// @description  从已授权的 LoveAV results 目录扫描、校验并运行最新 MissAV 浏览器脚本。
+// @version      1.1.0
+// @description  从已授权的 LoveAV results 目录扫描并运行最新的项目目录模式 MissAV 浏览器脚本。
 // @match        https://missav.ai/*
 // @match        https://*.missav.ai/*
 // @match        https://missav.ws/*

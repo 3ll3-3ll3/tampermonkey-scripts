@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         LoveAV MissAV 最新脚本启动器
 // @namespace    wjl.local
-// @version      1.0.0
-// @description  从已授权的 LoveAV results 目录扫描、校验并运行最新 MissAV 浏览器脚本。
+// @version      1.1.0
+// @description  从已授权的 LoveAV results 目录扫描并运行最新的项目目录模式 MissAV 浏览器脚本。
 // @match        https://missav.ai/*
 // @match        https://*.missav.ai/*
 // @match        https://missav.ws/*
@@ -110,9 +110,13 @@
       'REFERENCE_ACTRESS_TAGS',
       'RAINDROP_EXPORT_BLACKLIST_TAGS',
       'MissAV 导入脚本启动面板',
+      'LOVEAV_DEFAULT_RESULTS_PATH_HINT',
+      '为避免文件落入浏览器 Downloads',
+      'await createOutputDirectory(state.baseDirHandle)',
     ];
-    if (!/^\s*\(async\s*\(\)\s*=>/.test(source) || !codeBlock || required.some((value) => !source.includes(value))) {
-      throw new Error(`文件不是经过校验的 LoveAV MissAV 浏览器脚本：${entryPath}`);
+    const hasOrdinaryDownloadFallback = source.includes('a.download = filename');
+    if (!/^\s*\(async\s*\(\)\s*=>/.test(source) || !codeBlock || required.some((value) => !source.includes(value)) || hasOrdinaryDownloadFallback) {
+      throw new Error(`文件不是新版项目目录模式的 LoveAV MissAV 浏览器脚本，请用当前 Skill 重新生成：${entryPath}`);
     }
     const codes = codeBlock[1].split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
     return { codes: new Set(codes.map((value) => value.toUpperCase())).size };
@@ -156,7 +160,7 @@
         <button id="change" class="secondary" type="button">更换目录</button>
         <button id="close" class="secondary" type="button">收起</button>
       </div>
-      <div class="hint">默认目录：${PATH_HINT}<br>只运行名称匹配且包含 LoveAV 校验标记的脚本。</div>
+      <div class="hint">默认目录：${PATH_HINT}<br>只运行新版项目目录模式脚本；不会把结果写入浏览器 Downloads。</div>
     </section>
   `;
 
