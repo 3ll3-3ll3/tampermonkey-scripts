@@ -14,6 +14,7 @@
 | --- | --- | --- | --- |
 | MissAV Auto Load More | 1.5.1 | 加载到指定数量后复制含番号的完整作品标题；支持单板块与全部板块汇总 | [`missav-auto-loader.user.js`](scripts/missav-auto-loader/missav-auto-loader.user.js) |
 | LoveAV MissAV 最新脚本启动器 | 1.0.0 | 自动读取已授权 results 目录中的最新 LoveAV 脚本，校验后直接运行 | [`loveav-missav-runner.user.js`](scripts/loveav-missav-runner/loveav-missav-runner.user.js) |
+| LoveAV Whos.tv 最新脚本启动器 | 1.0.0 | 自动读取已授权 generated 目录中的最新 Whos.tv 抓取脚本，校验后由用户一键运行 | [`loveav-whostv-runner.user.js`](scripts/loveav-whostv-runner/loveav-whostv-runner.user.js) |
 | 123AV 首页工具 | 1.2.1 | 自动 Load More，复制各板块含番号的完整作品标题，并提取顶部轮播标题 | [`123av-home-tools.user.js`](scripts/123av-home-tools/123av-home-tools.user.js) |
 
 ## 目录约定
