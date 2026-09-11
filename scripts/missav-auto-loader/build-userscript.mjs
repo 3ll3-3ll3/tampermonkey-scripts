@@ -10,7 +10,7 @@ const source = await readFile(sourcePath, 'utf8');
 const header = `// ==UserScript==
 // @name         MissAV 自动 Load More
 // @namespace    wjl.local
-// @version      1.5.0
+// @version      1.5.1
 // @description  自动加载 MissAV 多个板块到指定总数，并提取、复制已加载卡片标题。
 // @match        https://missav.ai/*
 // @match        https://*.missav.ai/*

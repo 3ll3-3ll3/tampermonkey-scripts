@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MissAV 自动 Load More
 // @namespace    wjl.local
-// @version      1.5.0
+// @version      1.5.1
 // @description  自动加载 MissAV 多个板块到指定总数，并提取、复制已加载卡片标题。
 // @match        https://missav.ai/*
 // @match        https://*.missav.ai/*
@@ -17,7 +17,7 @@
 (() => {
   'use strict';
 
-  console.info('[MissAV Auto Loader] v1.5.0 starting', location.href);
+  console.info('[MissAV Auto Loader] v1.5.1 starting', location.href);
 
   const EXISTING = window.__missavAutoLoader;
   if (EXISTING?.show) {
@@ -36,6 +36,7 @@
   const GROWTH_TIMEOUT_MS = 20000;
   const MAX_STALL_RETRIES = 3;
   const HAS_MENU_COMMAND = typeof GM_registerMenuCommand === 'function';
+  const CODE_IN_TITLE = /(?:\bFC2[\s_-]*(?:PPV[\s_-]*)?\d{4,10}\b|\b(?:\d{3})?[A-Z]{2,8}[\s_-]+\d{2,5}V?\b|\b[A-Z]{2,8}\d{2,5}V?\b)/i;
 
   let destroyed = false;
   let queue = Promise.resolve();
@@ -96,26 +97,37 @@
   }
 
   function titleFromCard(card) {
-    const textSelectors = [
-      '.card-title', '.video-title', '[class*="title"]',
+    const candidates = new Map();
+    const addCandidate = (value, priority) => {
+      const text = String(value || '').replace(/\s+/g, ' ').trim();
+      if (!text || LOAD_MORE_TEXT.test(text)) return;
+      candidates.set(text, Math.max(priority, candidates.get(text) || 0));
+    };
+    const addElement = (element, priority) => {
+      if (!element) return;
+      addCandidate(normalizedText(element), priority);
+      addCandidate(element.getAttribute?.('data-title'), priority);
+      addCandidate(element.getAttribute?.('title'), priority);
+      addCandidate(element.getAttribute?.('aria-label'), priority);
+      addCandidate(element.getAttribute?.('alt'), priority);
+    };
+
+    card.querySelectorAll([
+      '.card-title', '.video-title', '[class*="video-title"]',
+      '[class*="video_title"]', '[class*="card-title"]',
+      '[class*="line-clamp"]', '[class*="truncate"]', '[class*="title"]',
       'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-    ];
-    for (const selector of textSelectors) {
-      const value = normalizedText(card.querySelector(selector));
-      if (value) return value;
-    }
-    for (const link of card.querySelectorAll('a[href]')) {
-      const value = normalizedText(link);
-      if (value && !LOAD_MORE_TEXT.test(value)) return value;
-    }
-    for (const element of card.querySelectorAll('[data-title], [title], img[alt]')) {
-      const value = element.getAttribute('data-title')
-        || element.getAttribute('title')
-        || element.getAttribute('alt')
-        || '';
-      if (value.trim()) return value.replace(/\s+/g, ' ').trim();
-    }
-    return normalizedText(card);
+    ].join(',')).forEach((element) => addElement(element, 3));
+    card.querySelectorAll('a[href]').forEach((element) => addElement(element, 2));
+    card.querySelectorAll('[data-title], [title], [aria-label], img[alt]').forEach((element) => addElement(element, 1));
+
+    const values = [...candidates].map(([text, priority]) => ({ text, priority }));
+    const containingCode = values.filter((item) => CODE_IN_TITLE.test(item.text));
+    const pool = containingCode.length ? containingCode : values;
+    pool.sort((left, right) => containingCode.length
+      ? right.text.length - left.text.length || right.priority - left.priority
+      : right.priority - left.priority || right.text.length - left.text.length);
+    return pool[0]?.text || normalizedText(card);
   }
 
   function extractTitles(grid) {

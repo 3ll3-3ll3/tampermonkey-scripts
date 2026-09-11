@@ -19,9 +19,10 @@
       const addCards = () => {
         for (let index = 0; index < 4; index++) {
           const number = grid.children.length + 1;
+          const code = name === '最新影片' ? `FC2-PPV-${4972100 + number}` : `START-${610 + number}V`;
           const card = document.createElement('article');
           card.className = 'card';
-          card.innerHTML = `<a href="/v/test-${number}"><span class="card__title">${name} 标题 ${number}</span></a>`;
+          card.innerHTML = `<a href="/v/test-${number}"><img alt="预览图 ${number}"><span class="card__title">${code} ${name} 完整作品标题 ${number}</span></a>`;
           grid.appendChild(card);
         }
       };
@@ -41,7 +42,9 @@
       if (lines.length !== 16) return;
       clearInterval(verify);
       const outputLines = document.querySelector('.aht-all-output').value.split('\n').filter(Boolean);
-      document.title = outputLines.length === 16 && lines[0] === '最新影片 标题 1' && lines[15] === '热门影片 标题 8'
+      document.title = outputLines.length === 16
+        && lines[0] === 'FC2-PPV-4972101 最新影片 完整作品标题 1'
+        && lines[15] === 'START-618V 热门影片 完整作品标题 8'
         ? 'PASS: 123AV 加载后汇总复制 16 条标题'
         : 'FAIL: 123AV 标题内容不正确';
     }, 50);

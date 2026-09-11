@@ -17,8 +17,9 @@
       const addCards = (grid) => {
         for (let index = 0; index < 3; index++) {
           const number = grid.children.length + 1;
+          const code = name === '推荐给你' ? `ABF-${String(number).padStart(3, '0')}` : `300MIUM-${1400 + number}`;
           const card = document.createElement('article');
-          card.innerHTML = `<a href="/cn/test-${number}"><span class="video-title">${name} 标题 ${number}</span></a>`;
+          card.innerHTML = `<a href="/cn/test-${number}"><img alt="普通缩略图 ${number}"><span class="video-title">${code} ${name} 完整作品标题 ${number} Uncensored Leaked</span></a>`;
           grid.appendChild(card);
         }
       };
@@ -51,7 +52,9 @@
       if (lines.length !== 12) return;
       clearInterval(verify);
       const outputLines = document.querySelector('.mal-all-output').value.split('\n').filter(Boolean);
-      document.title = outputLines.length === 12 && lines[0] === '推荐给你 标题 1' && lines[11] === '中文字幕 标题 6'
+      document.title = outputLines.length === 12
+        && lines[0] === 'ABF-001 推荐给你 完整作品标题 1 Uncensored Leaked'
+        && lines[11] === '300MIUM-1406 中文字幕 完整作品标题 6 Uncensored Leaked'
         ? 'PASS: MissAV 加载后汇总复制 12 条标题'
         : 'FAIL: MissAV 标题内容不正确';
     }, 50);
