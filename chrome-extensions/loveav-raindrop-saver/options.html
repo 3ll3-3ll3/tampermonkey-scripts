@@ -80,9 +80,26 @@
       <p id="settings-status" class="status"></p>
     </section>
 
+    <section>
+      <div class="section-title">
+        <span class="step">4</span>
+        <div><h2>一体化工作流</h2><p>过滤和 Raindrop 收藏可独立使用，也可从网站面板将当前作品标题直接送入过滤工作台。</p></div>
+      </div>
+      <div class="form-grid">
+        <label>点击 Chrome 扩展图标时
+          <select id="action-behavior"><option value="workbench">打开一体化过滤工作台（默认）</option><option value="save">直接收藏当前网页</option><option value="settings">打开设置</option></select>
+        </label>
+        <label>网站面板的主按钮
+          <select id="page-primary-action"><option value="save">收藏到 Raindrop（默认）</option><option value="filter">提取当前页并打开番号过滤器</option></select>
+        </label>
+      </div>
+      <label class="check"><input id="auto-filter-setting" type="checkbox" checked> 工作台输入后自动执行过滤</label>
+      <p class="setting-note">不论主按钮选哪个，网站面板都会同时保留“收藏”和“提取过滤”两个入口。</p>
+    </section>
+
     <section class="ready-card">
       <h2>使用方式</h2>
-      <p>详情页会显示“存到 Raindrop”；首页或列表页会显示“批量收藏本页 · 数量”。批量模式只处理当前 DOM 中已经加载出来的作品，先并发读取详情，再按每批最多 100 条写入。</p>
+      <p>点击扩展图标默认打开一体化过滤工作台。MissAV / 123AV 页面左下角的“♥ LoveAV 工具”面板同时提供收藏和提取过滤；批量收藏只处理当前 DOM 中已经加载出来的作品，先并发读取详情，再按每批最多 100 条写入。</p>
       <p>默认目标：MissAV → <b>MissAV</b>；123AV → <b>javxxx&amp;123av</b>。扩展会保留番号作为 Raindrop 标题，并写入女优与类型 Tag。</p>
       <p>若 URL 已存在，会提示“已经存在”且不重复写入；若命中第二层导出黑名单，则直接拦截。</p>
     </section>

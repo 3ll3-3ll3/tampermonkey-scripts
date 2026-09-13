@@ -1,6 +1,15 @@
-# LoveAV 一键收藏到 Raindrop
+# LoveAV 一体化工具
 
-这是一个独立的 Chrome Manifest V3 扩展。在 MissAV 与 123AV 中，它既能收藏单个作品详情，也能批量收藏当前页面已经加载的全部作品。扩展会识别番号、女优、类型、封面和 URL，并按 LoveAV / MissAV Manager v0.5.13 的规则直接保存到 Raindrop。
+这是一个独立的 Chrome Manifest V3 扩展，把“全局番号过滤器”和“MissAV / 123AV 一键收藏到 Raindrop”放进同一个扩展。两个模块可以分别使用，也可以从网站面板把当前页作品直接送入过滤工作台。
+
+## 一体化工作流
+
+- 默认点击 Chrome 扩展图标打开番号过滤工作台；也可以改为直接收藏当前网页或打开设置；
+- 在任意网页打开工作台，粘贴任意长度文字或导入多个文件，按 MissAV Manager v0.5.13 兼容规则过滤、去重、复制或下载番号；
+- MissAV / 123AV 左下角常驻 `♥ LoveAV 工具`，同时保留“收藏到 Raindrop”和“提取并过滤”两个按钮；
+- 设置页可以选择网站面板的主按钮，并控制工作台是否输入后自动过滤；
+- “提取并过滤”只把当前页面已经识别的作品标题和链接传给扩展自己的本地页面，不会写入 Raindrop；
+- “收藏到 Raindrop”仍使用 LoveAV 分类、黑名单和查重流程。
 
 ## 行为
 
@@ -11,9 +20,9 @@
 - 保存前使用 Raindrop 官方接口检查 URL，已存在的作品不重复写入；
 - 批量查重采用分组定位，新增数据按分类分组并以每批最多 100 条写入；
 - OAuth 令牌到期前自动刷新；
-- 每个 MissAV / 123AV 页面左下角都会常驻显示 `♥ LoveAV 收藏` 入口，不再因为暂时未识别到作品而消失；
+- 每个 MissAV / 123AV 页面左下角都会常驻显示 `♥ LoveAV 工具` 入口，不再因为暂时未识别到作品而消失；
 - 点开后可查看识别、详情解析、分类、查重、新增、排除和失败的逐条进度；
-- Chrome 工具栏扩展图标也可触发当前页面的收藏；
+- Chrome 工具栏扩展图标的行为可在设置页切换；
 - 缺少目标收藏夹时，默认自动创建同名的私人收藏夹。
 
 ## 安装
@@ -22,7 +31,9 @@
 2. 开启“开发者模式”；
 3. 选择“加载已解压的扩展程序”；
 4. 选择本目录 `chrome-extensions/loveav-raindrop-saver`；
-5. 首次安装会自动打开设置页。
+5. 首次安装会自动打开设置页。若是从旧版升级，在 `chrome://extensions/` 中点一次“重新加载”即可保留原来的本机 OAuth、规则和收藏夹设置。
+
+升级并确认一体化工具正常后，原来的独立“全局番号过滤器”扩展可以停用，以免工具栏出现两个相似入口；仓库仍保留其源码作为独立版本。
 
 ## 首次设置
 
@@ -65,6 +76,8 @@ Client Secret、access token 与 refresh token 只保存在本机扩展存储，
 
 ```powershell
 node --check loveav-core.js
+node --check filter-core.js
+node --check filter-app.js
 node --check content.js
 node --check background.js
 node --check options.js

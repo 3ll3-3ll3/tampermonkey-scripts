@@ -10,6 +10,11 @@ const DEFAULT_SETTINGS = Object.freeze({
   destinationMode: 'site',
   siteCollectionNames: CORE.SITE_COLLECTION_DEFAULTS,
   siteCollectionIds: {},
+  workflow: {
+    actionBehavior: 'workbench',
+    pagePrimaryAction: 'save',
+    autoFilter: true,
+  },
   collectionNames: {
     [CORE.FOLDERS.reference]: CORE.FOLDERS.reference,
     [CORE.FOLDERS.needCheck]: CORE.FOLDERS.needCheck,
@@ -150,6 +155,7 @@ function mergedSettings(settings) {
     destinationMode: settings?.destinationMode === 'classification' ? 'classification' : 'site',
     siteCollectionNames: { ...DEFAULT_SETTINGS.siteCollectionNames, ...(settings?.siteCollectionNames || {}) },
     siteCollectionIds: { ...(settings?.siteCollectionIds || {}) },
+    workflow: { ...DEFAULT_SETTINGS.workflow, ...(settings?.workflow || {}) },
     collectionNames: { ...DEFAULT_SETTINGS.collectionNames, ...(settings?.collectionNames || {}) },
     collectionIds: { ...(settings?.collectionIds || {}) },
   };
@@ -388,6 +394,16 @@ async function ensureDefaultSettingsStored() {
   await storageSet({ loveavSettings: mergedSettings(loveavSettings) });
 }
 
+async function openFilterWorkbench(text = '', sourceLabel = '') {
+  if (text) {
+    await new Promise((resolve) => chrome.storage.session.set({
+      loveavPendingFilter: { text: String(text), sourceLabel: String(sourceLabel), createdAt: Date.now() },
+    }, resolve));
+  }
+  const tab = await chrome.tabs.create({ url: chrome.runtime.getURL('filter.html') });
+  return { ok: true, tabId: tab?.id || 0 };
+}
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   const run = async () => {
     switch (message?.type) {
@@ -396,6 +412,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       case 'loveav-oauth-authorize': return { ok: true, ...(await authorizeRaindrop(message.clientId, message.clientSecret)) };
       case 'loveav-status': return { ok: true, ...(await connectionStatus()) };
       case 'loveav-list-collections': return { ok: true, items: await allCollections(true) };
+      case 'loveav-open-filter': return openFilterWorkbench(message.text, message.sourceLabel);
       case 'loveav-clear-oauth':
         await storageSet({ raindropOAuth: null });
         collectionCache = null;
@@ -414,11 +431,21 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 });
 
 chrome.action.onClicked.addListener(async (tab) => {
+  const { loveavSettings } = await storageGet('loveavSettings');
+  const behavior = mergedSettings(loveavSettings).workflow.actionBehavior;
+  if (behavior === 'workbench') {
+    await openFilterWorkbench();
+    return;
+  }
+  if (behavior === 'settings') {
+    await chrome.runtime.openOptionsPage();
+    return;
+  }
   try {
     if (!tab.id) throw new Error('没有活动标签页');
     await chrome.tabs.sendMessage(tab.id, { type: 'loveav-save-current' });
   } catch {
-    await chrome.runtime.openOptionsPage();
+    await openFilterWorkbench();
   }
 });
 

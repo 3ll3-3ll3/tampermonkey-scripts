@@ -2,11 +2,25 @@
 
 const assert = require('node:assert/strict');
 const core = require('./loveav-core.js');
+const filter = require('./filter-core.js');
 
 assert.equal(core.extractCode('SNOS-355-Uncensored-Leaked'), 'SNOS-355');
 assert.equal(core.extractCode('FC2-PPV-4972103'), 'FC2-PPV-4972103');
 assert.equal(core.extractCode('300MIUM-1446'), '300MIUM-1446');
 assert.equal(core.extractCode('/cn/v/START-619V-Uncensored-Leaked'), 'START-619V');
+assert.equal(filter.normalizeCode('300MIUM-1446'), 'MIUM-1446');
+assert.equal(filter.normalizeCode('START-619V-Uncensored-Leaked'), 'START-619');
+assert.equal(filter.normalizeCode('FC2-PPV-4972103'), 'FC2-PPV-4972103');
+assert.deepEqual(
+  filter.parseCodeList([
+    '1. SNOS-355-Uncensored-Leaked',
+    '2. FC2-PPV-4972103',
+    '3. 300MIUM-1446',
+    '4. START-619V-Uncensored-Leaked',
+    '5. START-619',
+  ].join('\n')),
+  ['SNOS-355', 'FC2-PPV-4972103', 'MIUM-1446', 'START-619'],
+);
 
 const library = [
   'tags,loveav_variants_json',

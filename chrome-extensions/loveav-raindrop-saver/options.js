@@ -166,6 +166,11 @@ function renderFolderSettings(settings) {
   document.querySelector(`input[name="destination-mode"][value="${mode}"]`).checked = true;
   document.getElementById('classification-settings').open = mode === 'classification';
   document.getElementById('auto-create').checked = settings.autoCreateCollections !== false;
+  const workflow = settings.workflow || {};
+  document.getElementById('action-behavior').value = ['workbench', 'save', 'settings'].includes(workflow.actionBehavior)
+    ? workflow.actionBehavior : 'workbench';
+  document.getElementById('page-primary-action').value = workflow.pagePrimaryAction === 'filter' ? 'filter' : 'save';
+  document.getElementById('auto-filter-setting').checked = workflow.autoFilter !== false;
 }
 
 document.getElementById('save-settings').addEventListener('click', async () => {
@@ -185,6 +190,11 @@ document.getElementById('save-settings').addEventListener('click', async () => {
     loveavSettings: {
       autoCreateCollections: document.getElementById('auto-create').checked,
       destinationMode: document.querySelector('input[name="destination-mode"]:checked')?.value || 'site',
+      workflow: {
+        actionBehavior: document.getElementById('action-behavior').value,
+        pagePrimaryAction: document.getElementById('page-primary-action').value,
+        autoFilter: document.getElementById('auto-filter-setting').checked,
+      },
       siteCollectionNames,
       siteCollectionIds,
       collectionNames,
@@ -232,6 +242,7 @@ async function init() {
       siteCollectionIds: {},
       collectionNames: {},
       collectionIds: {},
+      workflow: { actionBehavior: 'workbench', pagePrimaryAction: 'save', autoFilter: true },
       autoCreateCollections: true,
     });
   }

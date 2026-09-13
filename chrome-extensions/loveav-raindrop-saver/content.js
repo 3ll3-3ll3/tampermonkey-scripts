@@ -3,10 +3,17 @@
 
   const HOST_ID = 'loveav-raindrop-saver-host';
   const CORE = globalThis.LoveAVCore;
+  const FILTER = globalThis.MissAVCodeFilterCore;
   const DETAIL_CONCURRENCY = 4;
+  const DEFAULT_WORKFLOW = { actionBehavior: 'workbench', pagePrimaryAction: 'save', autoFilter: true };
   let saving = false;
   let cancelled = false;
   let ui = null;
+  let workflow = { ...DEFAULT_WORKFLOW };
+
+  function normalizeWorkCode(value) {
+    return FILTER?.normalizeCode?.(value) || CORE.normalizeCode(value);
+  }
 
   function siteForUrl(value = location.href) {
     const host = new URL(value, location.href).hostname.toLowerCase();
@@ -62,7 +69,8 @@
     const site = siteForUrl(fallbackUrl);
     if (!site || !isDetailUrl(fallbackUrl, site)) return null;
     const title = titleFromDocument(doc) || hint.title || '';
-    const code = CORE.extractCode(title) || CORE.workCodeFromUrl(new URL(fallbackUrl).href, site) || hint.code || '';
+    const rawCode = CORE.extractCode(title) || CORE.workCodeFromUrl(new URL(fallbackUrl).href, site) || hint.code || '';
+    const code = normalizeWorkCode(rawCode);
     if (!code) return null;
     const coverSource = doc.querySelector('meta[property="og:image"]')?.getAttribute('content')
       || doc.querySelector('meta[name="twitter:image"]')?.getAttribute('content')
@@ -90,7 +98,7 @@
   function titleHintForAnchor(anchor, code) {
     const card = anchor.closest('.card, article, [class*="card"], [class*="video"], li');
     const values = [textOf(anchor), textOf(card)].filter(Boolean);
-    return values.find((value) => CORE.extractCode(value) === code)
+    return values.find((value) => normalizeWorkCode(CORE.extractCode(value)) === code)
       || values.find((value) => CORE.extractCode(value))
       || code;
   }
@@ -109,7 +117,7 @@
       url.hash = '';
       url.search = '';
       if (siteForUrl(url.href) !== site || !isDetailUrl(url.href, site)) continue;
-      const code = CORE.workCodeFromUrl(url.href, site) || CORE.extractCode(textOf(anchor));
+      const code = normalizeWorkCode(CORE.workCodeFromUrl(url.href, site) || CORE.extractCode(textOf(anchor)));
       if (!code) continue;
       const key = url.href.toLocaleLowerCase();
       if (seen.has(key)) continue;
@@ -189,6 +197,13 @@
     return count ? `批量收藏本页 · ${count}` : '未识别到作品';
   }
 
+  function filterButtonText() {
+    const detail = currentDetailWork();
+    if (detail) return `提取并过滤 · ${detail.code}`;
+    const count = listedWorks().length;
+    return count ? `提取并过滤本页 · ${count}` : '未识别到作品';
+  }
+
   function openPanel() {
     ensureUi();
     ui.panel.hidden = false;
@@ -216,6 +231,7 @@
     cancelled = false;
     openPanel();
     ui.action.disabled = true;
+    ui.alternate.disabled = true;
     ui.stop.disabled = false;
     ui.logs.textContent = '';
     setStats({ total: detail ? 1 : listed.length, parsed: 0, created: 0, existing: 0, excluded: 0, failed: 0 });
@@ -281,6 +297,36 @@
     }
   }
 
+  async function filterCurrentPage() {
+    if (saving) return;
+    const detail = currentDetailWork();
+    const works = detail ? [detail] : listedWorks();
+    openPanel();
+    if (!works.length) {
+      setPhase('当前页面没有识别到可提取的作品', 'error');
+      addLog('请等页面加载完成后点“刷新识别”', 'error');
+      return;
+    }
+    const text = works.map((work) => `${work.title || work.code}\n${work.url}`).join('\n\n');
+    setPhase(`正在把 ${works.length} 个作品送入本地番号过滤器…`);
+    addLog(`已提取 ${works.length} 个作品的标题与链接；不会写入 Raindrop`);
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: 'loveav-open-filter',
+        text,
+        sourceLabel: `${siteForUrl()} 当前页 ${works.length} 个作品`,
+      });
+      if (!response?.ok) throw new Error(response?.error || '无法打开过滤工作台');
+      setPhase(`已打开过滤工作台：${works.length} 个作品`, 'success');
+      setStats({ total: works.length, parsed: works.length });
+      setProgress(works.length, works.length);
+      addLog('过滤工作台会按你的“自动过滤”设置处理这些内容', 'success');
+    } catch (error) {
+      setPhase(error.message || String(error), 'error');
+      addLog(error.message || String(error), 'error');
+    }
+  }
+
   function ensureUi() {
     if (ui?.host?.isConnected) return ui;
     let host = document.getElementById(HOST_ID);
@@ -301,33 +347,34 @@
     const shadow = host.shadowRoot || host.attachShadow({ mode: 'open' });
     shadow.innerHTML = `
       <style>
-        *{box-sizing:border-box}button{font:inherit}.launcher,.panel{pointer-events:auto}.launcher{position:fixed;left:18px;bottom:18px;z-index:2147483647;border:1px solid #8b7cf6;border-radius:999px;padding:11px 16px;background:#5b4fcf;color:#fff;font:700 14px/1.2 system-ui,"Microsoft YaHei",sans-serif;box-shadow:0 10px 30px #0006;cursor:pointer}.launcher[hidden],.panel[hidden]{display:none!important}.panel{position:fixed;left:18px;bottom:18px;z-index:2147483647;width:min(460px,calc(100vw - 36px));max-height:min(720px,calc(100vh - 36px));overflow:hidden;border:1px solid #475569;border-radius:15px;background:#0f172af2;color:#e5e7eb;box-shadow:0 18px 55px #0009;font:13px/1.45 system-ui,"Microsoft YaHei",sans-serif}.head{display:flex;align-items:center;justify-content:space-between;padding:13px 14px;border-bottom:1px solid #334155}.title{font-size:16px;font-weight:800}.sub{color:#94a3b8;font-size:12px}.close{border:0;background:transparent;color:#cbd5e1;font-size:22px;cursor:pointer}.body{padding:13px;overflow:auto;max-height:calc(min(720px,100vh - 36px) - 54px)}.phase{margin-bottom:10px;padding:9px 10px;border-radius:8px;background:#1e293b;color:#dbeafe}.phase[data-kind="success"]{background:#064e3b;color:#d1fae5}.phase[data-kind="warn"]{background:#713f12;color:#fef3c7}.phase[data-kind="error"]{background:#7f1d1d;color:#fee2e2}.actions{display:flex;gap:8px;margin:10px 0}.primary,.secondary{border:0;border-radius:8px;padding:9px 12px;color:#fff;cursor:pointer}.primary{flex:1;background:#4f46e5;font-weight:700}.secondary{background:#475569}.stop{background:#b91c1c}.primary:disabled,.secondary:disabled{opacity:.45;cursor:not-allowed}.barrow{display:flex;align-items:center;gap:9px;margin:8px 0}.barrow progress{width:100%;height:10px;accent-color:#7c6df2}.progress-text{min-width:50px;text-align:right;color:#cbd5e1}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin:10px 0}.stat{padding:7px;border:1px solid #334155;border-radius:8px;background:#172033;text-align:center}.stat b{display:block;font-size:16px;color:#fff}.stat span{color:#94a3b8;font-size:11px}.logs{height:230px;overflow:auto;border:1px solid #334155;border-radius:8px;background:#080f1e;padding:8px;font:12px/1.45 Consolas,"Microsoft YaHei",monospace}.log{padding:3px 0;border-bottom:1px solid #1e293b;color:#cbd5e1}.log.success{color:#86efac}.log.warn{color:#fde68a}.log.error{color:#fca5a5}.ready{margin-top:8px;color:#94a3b8;font-size:12px}
+        *{box-sizing:border-box}button{font:inherit}.launcher,.panel{pointer-events:auto}.launcher{position:fixed;left:18px;bottom:18px;z-index:2147483647;border:1px solid #8b7cf6;border-radius:999px;padding:11px 16px;background:#5b4fcf;color:#fff;font:700 14px/1.2 system-ui,"Microsoft YaHei",sans-serif;box-shadow:0 10px 30px #0006;cursor:pointer}.launcher[hidden],.panel[hidden]{display:none!important}.panel{position:fixed;left:18px;bottom:18px;z-index:2147483647;width:min(500px,calc(100vw - 36px));max-height:min(720px,calc(100vh - 36px));overflow:hidden;border:1px solid #475569;border-radius:15px;background:#0f172af2;color:#e5e7eb;box-shadow:0 18px 55px #0009;font:13px/1.45 system-ui,"Microsoft YaHei",sans-serif}.head{display:flex;align-items:center;justify-content:space-between;padding:13px 14px;border-bottom:1px solid #334155}.title{font-size:16px;font-weight:800}.sub{color:#94a3b8;font-size:12px}.close{border:0;background:transparent;color:#cbd5e1;font-size:22px;cursor:pointer}.body{padding:13px;overflow:auto;max-height:calc(min(720px,100vh - 36px) - 54px)}.phase{margin-bottom:10px;padding:9px 10px;border-radius:8px;background:#1e293b;color:#dbeafe}.phase[data-kind="success"]{background:#064e3b;color:#d1fae5}.phase[data-kind="warn"]{background:#713f12;color:#fef3c7}.phase[data-kind="error"]{background:#7f1d1d;color:#fee2e2}.actions{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}.primary,.secondary{border:0;border-radius:8px;padding:9px 12px;color:#fff;cursor:pointer}.primary{flex:1 1 220px;background:#4f46e5;font-weight:700}.secondary{background:#475569}.secondary.alternate{flex:1 1 170px;background:#0369a1;font-weight:700}.stop{background:#b91c1c}.primary:disabled,.secondary:disabled{opacity:.45;cursor:not-allowed}.barrow{display:flex;align-items:center;gap:9px;margin:8px 0}.barrow progress{width:100%;height:10px;accent-color:#7c6df2}.progress-text{min-width:50px;text-align:right;color:#cbd5e1}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin:10px 0}.stat{padding:7px;border:1px solid #334155;border-radius:8px;background:#172033;text-align:center}.stat b{display:block;font-size:16px;color:#fff}.stat span{color:#94a3b8;font-size:11px}.logs{height:230px;overflow:auto;border:1px solid #334155;border-radius:8px;background:#080f1e;padding:8px;font:12px/1.45 Consolas,"Microsoft YaHei",monospace}.log{padding:3px 0;border-bottom:1px solid #1e293b;color:#cbd5e1}.log.success{color:#86efac}.log.warn{color:#fde68a}.log.error{color:#fca5a5}.ready{margin-top:8px;color:#94a3b8;font-size:12px}
       </style>
-      <button class="launcher" type="button" title="打开 LoveAV 一键收藏面板">♥ LoveAV 收藏</button>
+      <button class="launcher" type="button" title="打开 LoveAV 网页工作流">♥ LoveAV 工具</button>
       <section class="panel" hidden>
-        <div class="head"><div><div class="title">LoveAV → Raindrop</div><div class="sub"></div></div><button class="close" type="button" title="收起">×</button></div>
+        <div class="head"><div><div class="title">LoveAV 网页工作流</div><div class="sub"></div></div><button class="close" type="button" title="收起">×</button></div>
         <div class="body">
           <div class="phase" data-kind="info">正在识别当前页面…</div>
-          <div class="actions"><button class="primary action" type="button"></button><button class="secondary refresh" type="button">刷新识别</button><button class="secondary stop" type="button" disabled>停止</button></div>
+          <div class="actions"><button class="primary action" type="button"></button><button class="secondary alternate" type="button"></button><button class="secondary refresh" type="button">刷新识别</button><button class="secondary stop" type="button" disabled>停止</button></div>
           <div class="barrow"><progress max="100" value="0"></progress><span class="progress-text">—</span></div>
           <div class="stats">
             <div class="stat"><b data-stat="total">0</b><span>识别</span></div><div class="stat"><b data-stat="parsed">0</b><span>已解析</span></div><div class="stat"><b data-stat="created">0</b><span>新增</span></div>
             <div class="stat"><b data-stat="existing">0</b><span>已存在</span></div><div class="stat"><b data-stat="excluded">0</b><span>排除</span></div><div class="stat"><b data-stat="failed">0</b><span>失败</span></div>
           </div>
           <div class="logs"><div class="log">面板已就绪，点击上方按钮开始。</div></div>
-          <div class="ready">本页仅保存派生分类结果；不会上传 LoveAV 主体库和规则文件。</div>
+          <div class="ready">过滤完全在本机运行；收藏时只向 Raindrop 提交书签，不会上传 LoveAV 主体库和规则文件。</div>
         </div>
       </section>`;
     const find = (selector) => shadow.querySelector(selector);
     ui = {
-      host, shadow, launcher: find('.launcher'), panel: find('.panel'), action: find('.action'), refresh: find('.refresh'),
+      host, shadow, launcher: find('.launcher'), panel: find('.panel'), action: find('.action'), alternate: find('.alternate'), refresh: find('.refresh'),
       stop: find('.stop'), close: find('.close'), phase: find('.phase'), progress: find('progress'),
       progressText: find('.progress-text'), logs: find('.logs'), sub: find('.sub'), stats: {},
     };
     for (const element of shadow.querySelectorAll('[data-stat]')) ui.stats[element.dataset.stat] = element;
     ui.launcher.addEventListener('click', openPanel);
     ui.close.addEventListener('click', closePanel);
-    ui.action.addEventListener('click', saveCurrent);
+    ui.action.addEventListener('click', () => (workflow.pagePrimaryAction === 'filter' ? filterCurrentPage() : saveCurrent()));
+    ui.alternate.addEventListener('click', () => (workflow.pagePrimaryAction === 'filter' ? saveCurrent() : filterCurrentPage()));
     ui.refresh.addEventListener('click', () => { syncUi(); addLog('已手动刷新页面识别结果'); });
     ui.stop.addEventListener('click', () => { cancelled = true; ui.stop.disabled = true; setPhase('正在停止；已发出的 Raindrop 请求不会强行中断', 'warn'); });
     return ui;
@@ -339,8 +386,12 @@
     const count = detail ? 1 : listedWorks().length;
     ui.sub.textContent = `${siteForUrl()} · 已识别 ${count} 个作品`;
     if (!saving) {
-      ui.action.textContent = buttonText();
+      const saveText = buttonText();
+      const filterText = filterButtonText();
+      ui.action.textContent = workflow.pagePrimaryAction === 'filter' ? filterText : saveText;
+      ui.alternate.textContent = workflow.pagePrimaryAction === 'filter' ? saveText : filterText;
       ui.action.disabled = count === 0;
+      ui.alternate.disabled = count === 0;
       setStats({ total: count });
       if (ui.phase.textContent === '正在识别当前页面…') {
         setPhase(count ? `已就绪：${detail ? `当前作品 ${detail.code}` : `当前页面 ${count} 个作品`}` : '页面已加载，暂未识别到作品', count ? 'success' : 'warn');
@@ -353,6 +404,17 @@
     openPanel();
     saveCurrent();
     return Promise.resolve({ accepted: true });
+  });
+
+  chrome.storage.local.get('loveavSettings', ({ loveavSettings }) => {
+    workflow = { ...DEFAULT_WORKFLOW, ...(loveavSettings?.workflow || {}) };
+    syncUi();
+  });
+
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName !== 'local' || !changes.loveavSettings) return;
+    workflow = { ...DEFAULT_WORKFLOW, ...(changes.loveavSettings.newValue?.workflow || {}) };
+    syncUi();
   });
 
   syncUi();
