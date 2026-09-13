@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>LoveAV 一键收藏设置</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <main>
+    <header>
+      <p class="eyebrow">LOVEAV · RAINDROP</p>
+      <h1>一键收藏设置</h1>
+      <p>完成一次设置后，在 MissAV 或 123AV 点击右下角按钮，或点击扩展图标，即可直接分类收藏单个详情或当前列表中的全部作品。</p>
+    </header>
+
+    <section>
+      <div class="section-title">
+        <span class="step">1</span>
+        <div><h2>导入 LoveAV 私人规则</h2><p>文件只在本机浏览器中处理，不会上传，也不会写入 Git 仓库。</p></div>
+      </div>
+      <label class="file-box">
+        <span>选择 LoveAV-Data 或 missav 文件夹</span>
+        <input id="rules-directory" type="file" webkitdirectory multiple>
+      </label>
+      <details>
+        <summary>找不到文件时，分别手动选择</summary>
+        <div class="file-grid">
+          <label>missav-library.csv<input id="library-file" type="file" accept=".csv,text/csv"></label>
+          <label>1-参考女优Tag库黑名单.txt<input id="reference-blacklist-file" type="file" accept=".txt,text/plain"></label>
+          <label>2-Raindrop导出黑名单.txt<input id="export-blacklist-file" type="file" accept=".txt,text/plain"></label>
+        </div>
+        <button id="import-individual" type="button" class="secondary">导入这三个文件</button>
+      </details>
+      <p id="rules-status" class="status">正在读取状态…</p>
+    </section>
+
+    <section>
+      <div class="section-title">
+        <span class="step">2</span>
+        <div><h2>连接个人 Raindrop 应用</h2><p>扩展使用官方 OAuth。Client Secret 与令牌只保存在本机扩展存储中。</p></div>
+      </div>
+      <ol class="instructions">
+        <li>在 <a href="https://app.raindrop.io/settings/integrations" target="_blank" rel="noreferrer">Raindrop App Management Console</a> 创建个人应用。</li>
+        <li>把下面的地址填入该应用的 OAuth redirect URI。</li>
+        <li>在本页输入 Client ID 与 Client Secret，然后授权。</li>
+      </ol>
+      <div class="copy-row"><code id="redirect-uri">读取中…</code><button id="copy-redirect" type="button" class="ghost">复制</button></div>
+      <div class="form-grid">
+        <label>Client ID<input id="client-id" type="text" autocomplete="off" spellcheck="false"></label>
+        <label>Client Secret<input id="client-secret" type="password" autocomplete="new-password" spellcheck="false"></label>
+      </div>
+      <div class="actions">
+        <button id="authorize" type="button">打开 Raindrop 授权</button>
+        <button id="disconnect" type="button" class="danger">断开本机授权</button>
+      </div>
+      <p id="oauth-status" class="status">正在读取状态…</p>
+    </section>
+
+    <section>
+      <div class="section-title">
+        <span class="step">3</span>
+        <div><h2>对应收藏夹</h2><p>默认使用 LoveAV 5.13 的三个名称；如果存在同名收藏夹，可填写唯一 ID。</p></div>
+      </div>
+      <div id="folder-settings" class="folders"></div>
+      <label class="check"><input id="auto-create" type="checkbox" checked> 自动创建缺少的收藏夹</label>
+      <div class="actions">
+        <button id="save-settings" type="button">保存收藏夹设置</button>
+        <button id="list-collections" type="button" class="secondary">查看我的收藏夹 ID</button>
+      </div>
+      <pre id="collections" hidden></pre>
+      <p id="settings-status" class="status"></p>
+    </section>
+
+    <section class="ready-card">
+      <h2>使用方式</h2>
+      <p>详情页会显示“存到 Raindrop”；首页或列表页会显示“批量收藏本页 · 数量”。批量模式只处理当前 DOM 中已经加载出来的作品，先并发读取详情，再按每批最多 100 条写入。</p>
+      <p>扩展会保留番号作为 Raindrop 标题，并写入女优与类型 Tag。</p>
+      <p>若 URL 已存在，会提示“已经存在”且不重复写入；若命中第二层导出黑名单，则直接拦截。</p>
+    </section>
+  </main>
+  <script src="loveav-core.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>
