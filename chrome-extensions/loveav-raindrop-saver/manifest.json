@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "LoveAV 一键收藏到 Raindrop",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "在 MissAV 与 123AV 详情页或列表页按 LoveAV v0.5.13 规则一键分类并保存到 Raindrop。",
   "action": {
     "default_title": "保存当前作品到 Raindrop"

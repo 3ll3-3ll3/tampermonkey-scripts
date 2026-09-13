@@ -236,7 +236,7 @@
           addLog(`${detail.code} 已存在，未重复写入`, 'success');
         } else {
           setPhase(`处理完成：已保存到「${response.folder}」`, 'success');
-          addLog(`${detail.code} 新增到「${response.folder}」`, 'success');
+          addLog(`${detail.code} 新增到「${response.folder}」（LoveAV 分类：${response.ruleFolder}）`, 'success');
         }
       } else {
         setPhase(`正在解析 ${listed.length} 个作品详情…`);
@@ -261,7 +261,11 @@
         setStats(response);
         for (const item of response.details || []) {
           const labels = { created: '已新增', exists: '已存在', excluded: '黑名单排除', failed: '失败' };
-          const suffix = item.matches?.length ? `：${item.matches.join('、')}` : item.folder ? ` → ${item.folder}` : item.error ? `：${item.error}` : '';
+          const suffix = item.matches?.length
+            ? `：${item.matches.join('、')}`
+            : item.folder
+              ? ` → ${item.folder}${item.ruleFolder ? `（LoveAV 分类：${item.ruleFolder}）` : ''}`
+              : item.error ? `：${item.error}` : '';
           addLog(`${item.code} ${labels[item.status] || item.status}${suffix}`, item.status === 'created' || item.status === 'exists' ? 'success' : item.status === 'failed' ? 'error' : 'warn');
         }
         const summary = `完成 ${response.total} 条：新增 ${response.created}，已存在 ${response.existing}，黑名单排除 ${response.excluded}，失败 ${response.failed}`;

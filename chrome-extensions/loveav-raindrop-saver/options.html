@@ -60,9 +60,17 @@
     <section>
       <div class="section-title">
         <span class="step">3</span>
-        <div><h2>对应收藏夹</h2><p>默认使用 LoveAV 5.13 的三个名称；如果存在同名收藏夹，可填写唯一 ID。</p></div>
+        <div><h2>目标收藏夹</h2><p>默认按来源网站归档；LoveAV 5.13 的标签、黑名单、分类判断和查重仍会正常执行。</p></div>
       </div>
-      <div id="folder-settings" class="folders"></div>
+      <div class="mode-grid">
+        <label class="mode-card"><input type="radio" name="destination-mode" value="site" checked><span><b>按网站归档（默认）</b><small>MissAV 和 123AV 分别进入各自收藏夹</small></span></label>
+        <label class="mode-card"><input type="radio" name="destination-mode" value="classification"><span><b>按 LoveAV 分类归档</b><small>进入需要查找、参考女优 Tag 命中或其他</small></span></label>
+      </div>
+      <div id="site-folder-settings" class="folders"></div>
+      <details id="classification-settings">
+        <summary>LoveAV 分类收藏夹设置</summary>
+        <div id="folder-settings" class="folders nested-settings"></div>
+      </details>
       <label class="check"><input id="auto-create" type="checkbox" checked> 自动创建缺少的收藏夹</label>
       <div class="actions">
         <button id="save-settings" type="button">保存收藏夹设置</button>
@@ -75,7 +83,7 @@
     <section class="ready-card">
       <h2>使用方式</h2>
       <p>详情页会显示“存到 Raindrop”；首页或列表页会显示“批量收藏本页 · 数量”。批量模式只处理当前 DOM 中已经加载出来的作品，先并发读取详情，再按每批最多 100 条写入。</p>
-      <p>扩展会保留番号作为 Raindrop 标题，并写入女优与类型 Tag。</p>
+      <p>默认目标：MissAV → <b>MissAV</b>；123AV → <b>javxxx&amp;123av</b>。扩展会保留番号作为 Raindrop 标题，并写入女优与类型 Tag。</p>
       <p>若 URL 已存在，会提示“已经存在”且不重复写入；若命中第二层导出黑名单，则直接拦截。</p>
     </section>
   </main>

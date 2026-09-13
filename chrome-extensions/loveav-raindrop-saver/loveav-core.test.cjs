@@ -44,4 +44,20 @@ assert.equal(core.workCodeFromUrl('https://missav.ai/cn/genres/dldss-533', 'Miss
 assert.equal(core.workCodeFromUrl('https://123av.com/cn/v/fc2-ppv-4972103', '123AV'), 'FC2-PPV-4972103');
 assert.equal(core.workCodeFromUrl('https://123av.com/cn', '123AV'), '');
 
+assert.deepEqual(
+  core.destinationForWork({ site: 'MissAV', folder: '参考女优Tag命中' }, { destinationMode: 'site' }),
+  { key: 'site:MissAV', name: 'MissAV', id: 0, ruleFolder: '参考女优Tag命中' },
+);
+assert.deepEqual(
+  core.destinationForWork({ site: '123AV', folder: '其他' }, { destinationMode: 'site' }),
+  { key: 'site:123AV', name: 'javxxx&123av', id: 0, ruleFolder: '其他' },
+);
+assert.deepEqual(
+  core.destinationForWork(
+    { site: 'MissAV', folder: '需要查找' },
+    { destinationMode: 'classification', collectionNames: { '需要查找': '待复核' }, collectionIds: { '需要查找': 42 } },
+  ),
+  { key: 'classification:需要查找', name: '待复核', id: 42, ruleFolder: '需要查找' },
+);
+
 console.log('loveav-core tests passed');

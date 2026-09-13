@@ -7,6 +7,9 @@ const API_ROOT = 'https://api.raindrop.io/rest/v1';
 const TOKEN_URL = 'https://raindrop.io/oauth/access_token';
 const DEFAULT_SETTINGS = Object.freeze({
   autoCreateCollections: true,
+  destinationMode: 'site',
+  siteCollectionNames: CORE.SITE_COLLECTION_DEFAULTS,
+  siteCollectionIds: {},
   collectionNames: {
     [CORE.FOLDERS.reference]: CORE.FOLDERS.reference,
     [CORE.FOLDERS.needCheck]: CORE.FOLDERS.needCheck,
@@ -144,15 +147,22 @@ function mergedSettings(settings) {
   return {
     ...DEFAULT_SETTINGS,
     ...(settings || {}),
+    destinationMode: settings?.destinationMode === 'classification' ? 'classification' : 'site',
+    siteCollectionNames: { ...DEFAULT_SETTINGS.siteCollectionNames, ...(settings?.siteCollectionNames || {}) },
+    siteCollectionIds: { ...(settings?.siteCollectionIds || {}) },
     collectionNames: { ...DEFAULT_SETTINGS.collectionNames, ...(settings?.collectionNames || {}) },
     collectionIds: { ...(settings?.collectionIds || {}) },
   };
 }
 
-async function resolveCollection(folder, settings) {
-  const idOverride = Number(settings.collectionIds?.[folder]);
+function collectionTarget(work, settings) {
+  return CORE.destinationForWork(work, settings);
+}
+
+async function resolveCollection(target, settings) {
+  const idOverride = Number(target.id);
   if (Number.isInteger(idOverride) && idOverride > 0) return idOverride;
-  const title = String(settings.collectionNames?.[folder] || folder).trim();
+  const title = target.name;
   let collections = await allCollections();
   let matches = collections.filter((item) => String(item.title || '').trim().toLocaleLowerCase() === title.toLocaleLowerCase());
   if (matches.length > 1) {
@@ -236,18 +246,19 @@ async function saveWork(rawWork) {
   void token;
   if (!loveavRules?.referenceTags?.length) throw new Error('尚未导入 LoveAV 规则，请先完成扩展设置');
   const work = CORE.classifyWork(rawWork, loveavRules);
-  if (work.excluded) {
-    return { ok: true, status: 'excluded', matches: work.exportBlacklistMatches, folder: '' };
-  }
-  if (await urlExists(work.url)) return { ok: true, status: 'exists', folder: work.folder };
   const settings = mergedSettings(loveavSettings);
-  const collectionId = await resolveCollection(work.folder, settings);
+  const target = collectionTarget(work, settings);
+  if (work.excluded) {
+    return { ok: true, status: 'excluded', matches: work.exportBlacklistMatches, folder: target.name, ruleFolder: work.folder };
+  }
+  if (await urlExists(work.url)) return { ok: true, status: 'exists', folder: target.name, ruleFolder: work.folder };
+  const collectionId = await resolveCollection(target, settings);
   const result = await api('/raindrop', {
     method: 'POST',
     body: JSON.stringify(raindropPayload(work, collectionId)),
   });
   if (!result.result || !result.item?._id) throw new Error('Raindrop 没有确认保存成功');
-  return { ok: true, status: 'created', folder: work.folder, id: result.item._id };
+  return { ok: true, status: 'created', folder: target.name, ruleFolder: work.folder, id: result.item._id };
 }
 
 async function saveWorks(rawWorks) {
@@ -270,30 +281,40 @@ async function saveWorks(rawWorks) {
   const excludedWorks = unique.filter((item) => item.excluded);
   const candidates = unique.filter((item) => !item.excluded);
   const { fresh, existing } = await batchNewAndExisting(candidates);
+  const settings = mergedSettings(loveavSettings);
   const detailByUrl = new Map();
   for (const work of excludedWorks) {
+    const target = collectionTarget(work, settings);
     detailByUrl.set(work.url.toLocaleLowerCase(), {
       code: work.code,
       status: 'excluded',
-      folder: work.folder,
+      folder: target.name,
+      ruleFolder: work.folder,
       matches: work.exportBlacklistMatches,
     });
   }
   for (const work of existing) {
-    detailByUrl.set(work.url.toLocaleLowerCase(), { code: work.code, status: 'exists', folder: work.folder });
+    const target = collectionTarget(work, settings);
+    detailByUrl.set(work.url.toLocaleLowerCase(), {
+      code: work.code,
+      status: 'exists',
+      folder: target.name,
+      ruleFolder: work.folder,
+    });
   }
-  const settings = mergedSettings(loveavSettings);
-  const byFolder = new Map();
+  const byTarget = new Map();
   for (const work of fresh) {
-    if (!byFolder.has(work.folder)) byFolder.set(work.folder, []);
-    byFolder.get(work.folder).push(work);
+    const target = collectionTarget(work, settings);
+    if (!byTarget.has(target.key)) byTarget.set(target.key, { target, works: [] });
+    byTarget.get(target.key).works.push(work);
   }
   let created = 0;
   const folderCounts = {};
   const errors = [];
-  for (const [folder, works] of byFolder) {
+  for (const { target, works } of byTarget.values()) {
+    const folder = target.name;
     try {
-      const collectionId = await resolveCollection(folder, settings);
+      const collectionId = await resolveCollection(target, settings);
       for (const group of chunks(works, 100)) {
         const result = await api('/raindrops', {
           method: 'POST',
@@ -307,6 +328,7 @@ async function saveWorks(rawWorks) {
             code: work.code,
             status: index < count ? 'created' : 'failed',
             folder,
+            ruleFolder: work.folder,
             ...(index < count ? {} : { error: 'Raindrop 未确认该条写入成功' }),
           });
         });
@@ -316,7 +338,13 @@ async function saveWorks(rawWorks) {
       errors.push(`${folder}：${message}`);
       for (const work of works) {
         if (!detailByUrl.has(work.url.toLocaleLowerCase())) {
-          detailByUrl.set(work.url.toLocaleLowerCase(), { code: work.code, status: 'failed', folder, error: message });
+          detailByUrl.set(work.url.toLocaleLowerCase(), {
+            code: work.code,
+            status: 'failed',
+            folder,
+            ruleFolder: work.folder,
+            error: message,
+          });
         }
       }
     }
@@ -334,7 +362,8 @@ async function saveWorks(rawWorks) {
     details: unique.map((work) => detailByUrl.get(work.url.toLocaleLowerCase()) || {
       code: work.code,
       status: 'failed',
-      folder: work.folder,
+      folder: collectionTarget(work, settings).name,
+      ruleFolder: work.folder,
       error: '未取得处理结果',
     }),
   };
@@ -352,6 +381,11 @@ async function connectionStatus() {
     settings: mergedSettings(loveavSettings),
     redirectUri: chrome.identity.getRedirectURL('raindrop'),
   };
+}
+
+async function ensureDefaultSettingsStored() {
+  const { loveavSettings } = await storageGet('loveavSettings');
+  await storageSet({ loveavSettings: mergedSettings(loveavSettings) });
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -389,5 +423,10 @@ chrome.action.onClicked.addListener(async (tab) => {
 });
 
 chrome.runtime.onInstalled.addListener((details) => {
+  ensureDefaultSettingsStored().catch(() => {});
   if (details.reason === 'install') chrome.runtime.openOptionsPage();
+});
+
+chrome.runtime.onStartup.addListener(() => {
+  ensureDefaultSettingsStored().catch(() => {});
 });

@@ -8,6 +8,7 @@
     needCheck: '需要查找',
     other: '其他',
   });
+  const SITE_COLLECTION_DEFAULTS = Object.freeze({ MissAV: 'MissAV', '123AV': 'javxxx&123av' });
   const SYSTEM_TAGS = new Set(['未知女优', UNKNOWN_ACTRESS_TAG, NEED_CHECK_TAG, '已存在', '重复输入']);
   const EXPLICIT_TYPE_TAGS = new Set(['教师', '女优', '女優', '演员', '演員', 'VR']);
   const TYPE_BOUNDARY_TAGS = new Set([
@@ -124,6 +125,25 @@
       return extractCode(last);
     }
     return '';
+  }
+
+  function destinationForWork(work, settings = {}) {
+    if (settings.destinationMode === 'classification') {
+      const folder = work.folder;
+      return {
+        key: `classification:${folder}`,
+        name: cleanText(settings.collectionNames?.[folder]) || folder,
+        id: Number(settings.collectionIds?.[folder]) || 0,
+        ruleFolder: folder,
+      };
+    }
+    const site = work.site === '123AV' ? '123AV' : 'MissAV';
+    return {
+      key: `site:${site}`,
+      name: cleanText(settings.siteCollectionNames?.[site]) || SITE_COLLECTION_DEFAULTS[site],
+      id: Number(settings.siteCollectionIds?.[site]) || 0,
+      ruleFolder: work.folder,
+    };
   }
 
   function looksLikeActressTag(value) {
@@ -295,6 +315,7 @@
     NEED_CHECK_TAG,
     UNKNOWN_ACTRESS_TAG,
     FOLDERS,
+    SITE_COLLECTION_DEFAULTS,
     TYPE_BOUNDARY_TAGS,
     cleanText,
     cleanTag,
@@ -303,6 +324,7 @@
     normalizeCode,
     extractCode,
     workCodeFromUrl,
+    destinationForWork,
     parseCSV,
     parseRuleLines,
     actressTagsFromValue,

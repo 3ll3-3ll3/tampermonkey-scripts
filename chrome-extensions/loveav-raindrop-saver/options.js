@@ -3,6 +3,9 @@
 const CORE = globalThis.LoveAVCore;
 const folderSettings = document.getElementById('folder-settings');
 const folderInputs = new Map();
+const siteFolderSettings = document.getElementById('site-folder-settings');
+const siteFolderInputs = new Map();
+const SITE_DEFAULTS = Object.freeze({ MissAV: 'MissAV', '123AV': 'javxxx&123av' });
 
 function setStatus(id, message, kind = '') {
   const element = document.getElementById(id);
@@ -133,24 +136,62 @@ function renderFolderSettings(settings) {
     folderSettings.append(row);
     folderInputs.set(folder, { name, id });
   }
+  siteFolderSettings.replaceChildren();
+  siteFolderInputs.clear();
+  for (const [site, defaultName] of Object.entries(SITE_DEFAULTS)) {
+    const row = document.createElement('div');
+    row.className = 'folder-row';
+    const key = document.createElement('div');
+    key.className = 'folder-key';
+    key.textContent = site;
+    const nameLabel = document.createElement('label');
+    nameLabel.textContent = 'Raindrop 收藏夹名称';
+    const name = document.createElement('input');
+    name.type = 'text';
+    name.value = settings.siteCollectionNames?.[site] || defaultName;
+    nameLabel.append(name);
+    const idLabel = document.createElement('label');
+    idLabel.textContent = '收藏夹 ID（可选）';
+    const id = document.createElement('input');
+    id.type = 'number';
+    id.min = '1';
+    id.placeholder = '按名称自动查找';
+    id.value = settings.siteCollectionIds?.[site] || '';
+    idLabel.append(id);
+    row.append(key, nameLabel, idLabel);
+    siteFolderSettings.append(row);
+    siteFolderInputs.set(site, { name, id });
+  }
+  const mode = settings.destinationMode === 'classification' ? 'classification' : 'site';
+  document.querySelector(`input[name="destination-mode"][value="${mode}"]`).checked = true;
+  document.getElementById('classification-settings').open = mode === 'classification';
   document.getElementById('auto-create').checked = settings.autoCreateCollections !== false;
 }
 
 document.getElementById('save-settings').addEventListener('click', async () => {
   const collectionNames = {};
   const collectionIds = {};
+  const siteCollectionNames = {};
+  const siteCollectionIds = {};
   for (const [folder, inputs] of folderInputs) {
     collectionNames[folder] = inputs.name.value.trim() || folder;
     if (Number(inputs.id.value) > 0) collectionIds[folder] = Number(inputs.id.value);
   }
+  for (const [site, inputs] of siteFolderInputs) {
+    siteCollectionNames[site] = inputs.name.value.trim() || SITE_DEFAULTS[site];
+    if (Number(inputs.id.value) > 0) siteCollectionIds[site] = Number(inputs.id.value);
+  }
   await storageSet({
     loveavSettings: {
       autoCreateCollections: document.getElementById('auto-create').checked,
+      destinationMode: document.querySelector('input[name="destination-mode"]:checked')?.value || 'site',
+      siteCollectionNames,
+      siteCollectionIds,
       collectionNames,
       collectionIds,
     },
   });
-  setStatus('settings-status', '收藏夹设置已保存', 'success');
+  setStatus('settings-status', '收藏夹设置已保存：MissAV → MissAV；123AV → javxxx&123av', 'success');
 });
 
 document.getElementById('list-collections').addEventListener('click', async (event) => {
@@ -185,7 +226,14 @@ async function init() {
     renderFolderSettings(status.settings);
   } catch (error) {
     setStatus('rules-status', error.message, 'error');
-    renderFolderSettings({ collectionNames: {}, collectionIds: {}, autoCreateCollections: true });
+    renderFolderSettings({
+      destinationMode: 'site',
+      siteCollectionNames: SITE_DEFAULTS,
+      siteCollectionIds: {},
+      collectionNames: {},
+      collectionIds: {},
+      autoCreateCollections: true,
+    });
   }
 }
 
