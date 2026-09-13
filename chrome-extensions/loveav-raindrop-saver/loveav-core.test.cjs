@@ -35,4 +35,13 @@ assert.equal(excluded.folder, '其他');
 assert.equal(excluded.excluded, true);
 assert.deepEqual(excluded.tags, ['#未知女优', '熟女']);
 
+assert.equal(core.workCodeFromUrl('https://missav.ai/dldss-533', 'MissAV'), 'DLDSS-533');
+assert.equal(core.workCodeFromUrl('https://missav.ai/cn/dldss-533', 'MissAV'), 'DLDSS-533');
+assert.equal(core.workCodeFromUrl('https://missav.ai/dm339/cn/dldss-533', 'MissAV'), 'DLDSS-533');
+assert.equal(core.workCodeFromUrl('https://missav.ai/dm339/dldss-533', 'MissAV'), 'DLDSS-533');
+assert.equal(core.workCodeFromUrl('https://missav.ai/dm339', 'MissAV'), '');
+assert.equal(core.workCodeFromUrl('https://missav.ai/cn/genres/dldss-533', 'MissAV'), '');
+assert.equal(core.workCodeFromUrl('https://123av.com/cn/v/fc2-ppv-4972103', '123AV'), 'FC2-PPV-4972103');
+assert.equal(core.workCodeFromUrl('https://123av.com/cn', '123AV'), '');
+
 console.log('loveav-core tests passed');

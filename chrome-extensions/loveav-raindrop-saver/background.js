@@ -270,6 +270,18 @@ async function saveWorks(rawWorks) {
   const excludedWorks = unique.filter((item) => item.excluded);
   const candidates = unique.filter((item) => !item.excluded);
   const { fresh, existing } = await batchNewAndExisting(candidates);
+  const detailByUrl = new Map();
+  for (const work of excludedWorks) {
+    detailByUrl.set(work.url.toLocaleLowerCase(), {
+      code: work.code,
+      status: 'excluded',
+      folder: work.folder,
+      matches: work.exportBlacklistMatches,
+    });
+  }
+  for (const work of existing) {
+    detailByUrl.set(work.url.toLocaleLowerCase(), { code: work.code, status: 'exists', folder: work.folder });
+  }
   const settings = mergedSettings(loveavSettings);
   const byFolder = new Map();
   for (const work of fresh) {
@@ -290,9 +302,23 @@ async function saveWorks(rawWorks) {
         const count = Array.isArray(result.items) ? result.items.length : result.result ? group.length : 0;
         created += count;
         folderCounts[folder] = (folderCounts[folder] || 0) + count;
+        group.forEach((work, index) => {
+          detailByUrl.set(work.url.toLocaleLowerCase(), {
+            code: work.code,
+            status: index < count ? 'created' : 'failed',
+            folder,
+            ...(index < count ? {} : { error: 'Raindrop 未确认该条写入成功' }),
+          });
+        });
       }
     } catch (error) {
-      errors.push(`${folder}：${error.message || String(error)}`);
+      const message = error.message || String(error);
+      errors.push(`${folder}：${message}`);
+      for (const work of works) {
+        if (!detailByUrl.has(work.url.toLocaleLowerCase())) {
+          detailByUrl.set(work.url.toLocaleLowerCase(), { code: work.code, status: 'failed', folder, error: message });
+        }
+      }
     }
   }
   return {
@@ -305,6 +331,12 @@ async function saveWorks(rawWorks) {
     failed: fresh.length - created,
     folderCounts,
     errors,
+    details: unique.map((work) => detailByUrl.get(work.url.toLocaleLowerCase()) || {
+      code: work.code,
+      status: 'failed',
+      folder: work.folder,
+      error: '未取得处理结果',
+    }),
   };
 }
 

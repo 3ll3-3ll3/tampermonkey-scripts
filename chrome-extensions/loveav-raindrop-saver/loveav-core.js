@@ -91,6 +91,41 @@
     return match ? normalizeCode(`${match[1]}-${match[2]}`) : '';
   }
 
+  function safeDecode(value) {
+    try {
+      return decodeURIComponent(String(value ?? ''));
+    } catch {
+      return String(value ?? '');
+    }
+  }
+
+  function workCodeFromUrl(value, site) {
+    let url;
+    try {
+      url = new URL(String(value));
+    } catch {
+      return '';
+    }
+    const segments = safeDecode(url.pathname).split('/').map((part) => part.trim()).filter(Boolean);
+    if (!segments.length) return '';
+    const last = segments.at(-1);
+    if (site === 'MissAV') {
+      if (/^dm\d+$/i.test(last)) return '';
+      const blockedRoutes = new Set([
+        'actress', 'actresses', 'actor', 'actors', 'genre', 'genres', 'category', 'categories',
+        'maker', 'makers', 'director', 'directors', 'series', 'playlists', 'search', 'login',
+        'register', 'favorites', 'history', 'new', 'release', 'uncensored', 'chinese-subtitle',
+      ]);
+      if (segments.some((part) => blockedRoutes.has(part.toLowerCase()))) return '';
+      return extractCode(last);
+    }
+    if (site === '123AV') {
+      if (!segments.some((part) => part.toLowerCase() === 'v')) return '';
+      return extractCode(last);
+    }
+    return '';
+  }
+
   function looksLikeActressTag(value) {
     const tag = normalizeCollectionTag(value);
     if (!tag || TYPE_BOUNDARY_TAGS.has(tag) || /\s/.test(tag) || tag.length > 120) return false;
@@ -267,6 +302,7 @@
     normalizeCollectionTag,
     normalizeCode,
     extractCode,
+    workCodeFromUrl,
     parseCSV,
     parseRuleLines,
     actressTagsFromValue,
