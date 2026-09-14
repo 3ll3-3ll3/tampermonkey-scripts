@@ -10,6 +10,13 @@
   let cancelled = false;
   let ui = null;
   let workflow = { ...DEFAULT_WORKFLOW };
+  const selection = globalThis.LoveAVPageSelection({
+    scan: scanWorkAnchors,
+    save: (works) => saveCurrent(works),
+    onChange: () => {
+      if (ui?.choose) ui.choose.textContent = `选择部分收藏${selection.count ? ` · 已选 ${selection.count}` : ''}`;
+    },
+  });
 
   function normalizeWorkCode(value) {
     return FILTER?.normalizeCode?.(value) || CORE.normalizeCode(value);
@@ -96,7 +103,12 @@
   }
 
   function titleHintForAnchor(anchor, code) {
-    const card = anchor.closest('.card, article, [class*="card"], [class*="video"], li');
+    let card = anchor.closest('.card, article, .thumbnail, .video-item, li');
+    const grid = anchor.closest('.grid, .rec__grid, [class*="grid-cols-"]');
+    if (grid) {
+      card = anchor;
+      while (card.parentElement && card.parentElement !== grid) card = card.parentElement;
+    }
     const values = [textOf(anchor), textOf(card)].filter(Boolean);
     return values.find((value) => normalizeWorkCode(CORE.extractCode(value)) === code)
       || values.find((value) => CORE.extractCode(value))
@@ -104,9 +116,19 @@
   }
 
   function listedWorks() {
+    const output = new Map();
+    for (const { work } of scanWorkAnchors()) {
+      const key = work.url.toLowerCase();
+      const previous = output.get(key);
+      if (!previous || work.title.length > previous.title.length) output.set(key, work);
+    }
+    return [...output.values()];
+  }
+
+  function scanWorkAnchors() {
     const site = siteForUrl();
     const output = [];
-    const seen = new Set();
+    const bestWorks = new Map();
     for (const anchor of document.querySelectorAll('a[href]')) {
       let url;
       try {
@@ -119,11 +141,12 @@
       if (siteForUrl(url.href) !== site || !isDetailUrl(url.href, site)) continue;
       const code = normalizeWorkCode(CORE.workCodeFromUrl(url.href, site) || CORE.extractCode(textOf(anchor)));
       if (!code) continue;
-      const key = url.href.toLocaleLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      output.push({ site, code, title: titleHintForAnchor(anchor, code), url: url.href });
+      const work = { site, code, title: titleHintForAnchor(anchor, code), url: url.href };
+      const key = url.href.toLowerCase();
+      if (!bestWorks.has(key) || bestWorks.get(key).title.length < work.title.length) bestWorks.set(key, work);
+      output.push({ work, anchor });
     }
+    for (const item of output) item.work = bestWorks.get(item.work.url.toLowerCase());
     return output;
   }
 
@@ -217,10 +240,11 @@
     ui.launcher.hidden = false;
   }
 
-  async function saveCurrent() {
+  async function saveCurrent(selectedWorks = null) {
     if (saving) return;
-    const detail = currentDetailWork();
-    const listed = detail ? [] : listedWorks();
+    const isSelection = Array.isArray(selectedWorks);
+    const detail = isSelection ? null : currentDetailWork();
+    const listed = isSelection ? selectedWorks.map((work) => ({ ...work })) : detail ? [] : listedWorks();
     if (!detail && !listed.length) {
       openPanel();
       setPhase('当前页面没有识别到可收藏的作品', 'error');
@@ -228,6 +252,8 @@
       return;
     }
     saving = true;
+    selection.setBusy(true);
+    selection.setActive(false);
     cancelled = false;
     openPanel();
     ui.action.disabled = true;
@@ -257,7 +283,7 @@
       } else {
         setPhase(`正在解析 ${listed.length} 个作品详情…`);
         setProgress(0, listed.length);
-        addLog(`已从当前页面识别 ${listed.length} 个唯一作品`);
+        addLog(isSelection ? `本次仅处理已勾选的 ${listed.length} 个作品` : `已从当前页面识别 ${listed.length} 个唯一作品`);
         const works = await mapConcurrent(listed, DETAIL_CONCURRENCY, fetchDetailedWork, (done, total, item, result) => {
           setProgress(done, total);
           setStats({ parsed: done });
@@ -292,6 +318,7 @@
       addLog(error.message || String(error), 'error');
     } finally {
       saving = false;
+      selection.setBusy(false);
       if (ui) ui.stop.disabled = true;
       syncUi();
     }
@@ -354,7 +381,7 @@
         <div class="head"><div><div class="title">LoveAV 网页工作流</div><div class="sub"></div></div><button class="close" type="button" title="收起">×</button></div>
         <div class="body">
           <div class="phase" data-kind="info">正在识别当前页面…</div>
-          <div class="actions"><button class="primary action" type="button"></button><button class="secondary alternate" type="button"></button><button class="secondary refresh" type="button">刷新识别</button><button class="secondary stop" type="button" disabled>停止</button></div>
+          <div class="actions"><button class="primary action" type="button"></button><button class="secondary alternate" type="button"></button><button class="secondary choose" type="button">选择部分收藏</button><button class="secondary refresh" type="button">刷新识别</button><button class="secondary stop" type="button" disabled>停止</button></div>
           <div class="barrow"><progress max="100" value="0"></progress><span class="progress-text">—</span></div>
           <div class="stats">
             <div class="stat"><b data-stat="total">0</b><span>识别</span></div><div class="stat"><b data-stat="parsed">0</b><span>已解析</span></div><div class="stat"><b data-stat="created">0</b><span>新增</span></div>
@@ -366,7 +393,7 @@
       </section>`;
     const find = (selector) => shadow.querySelector(selector);
     ui = {
-      host, shadow, launcher: find('.launcher'), panel: find('.panel'), action: find('.action'), alternate: find('.alternate'), refresh: find('.refresh'),
+      host, shadow, launcher: find('.launcher'), panel: find('.panel'), action: find('.action'), alternate: find('.alternate'), choose: find('.choose'), refresh: find('.refresh'),
       stop: find('.stop'), close: find('.close'), phase: find('.phase'), progress: find('progress'),
       progressText: find('.progress-text'), logs: find('.logs'), sub: find('.sub'), stats: {},
     };
@@ -375,6 +402,11 @@
     ui.close.addEventListener('click', closePanel);
     ui.action.addEventListener('click', () => (workflow.pagePrimaryAction === 'filter' ? filterCurrentPage() : saveCurrent()));
     ui.alternate.addEventListener('click', () => (workflow.pagePrimaryAction === 'filter' ? saveCurrent() : filterCurrentPage()));
+    ui.choose.addEventListener('click', () => {
+      if (saving || currentDetailWork()) return;
+      closePanel();
+      selection.setActive(true);
+    });
     ui.refresh.addEventListener('click', () => { syncUi(); addLog('已手动刷新页面识别结果'); });
     ui.stop.addEventListener('click', () => { cancelled = true; ui.stop.disabled = true; setPhase('正在停止；已发出的 Raindrop 请求不会强行中断', 'warn'); });
     return ui;
@@ -384,6 +416,11 @@
     ensureUi();
     const detail = currentDetailWork();
     const count = detail ? 1 : listedWorks().length;
+    if (detail && selection.active) selection.setActive(false);
+    selection.refresh();
+    ui.choose.hidden = Boolean(detail);
+    ui.choose.disabled = saving || count === 0;
+    ui.choose.textContent = `选择部分收藏${selection.count ? ` · 已选 ${selection.count}` : ''}`;
     ui.sub.textContent = `${siteForUrl()} · 已识别 ${count} 个作品`;
     if (!saving) {
       const saveText = buttonText();

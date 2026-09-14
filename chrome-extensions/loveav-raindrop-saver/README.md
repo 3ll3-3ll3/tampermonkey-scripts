@@ -8,9 +8,18 @@
 - 在任意网页打开工作台，粘贴任意长度文字或导入多个文件，按 MissAV Manager v0.5.13 兼容规则过滤、去重、复制或下载番号；
 - 可以把过滤结果作为手动番号批次，选择“标准处理、全量重查、只解析预览”后，串行读取 MissAV 候选页面并直接提交 Raindrop；
 - MissAV / 123AV 左下角常驻 `♥ LoveAV 工具`，同时保留“收藏到 Raindrop”和“提取并过滤”两个按钮；
+- 列表页新增“选择部分收藏”：在作品卡片上勾选，再点击“收藏已选 N 项”；支持全选、反选、按板块选择、选择可见区域、按标题关键词或多行番号勾选；
 - 设置页可以选择网站面板的主按钮，并控制工作台是否输入后自动过滤；
 - “提取并过滤”只把当前页面已经识别的作品标题和链接传给扩展自己的本地页面，不会写入 Raindrop；
 - “收藏到 Raindrop”仍使用 LoveAV 分类、黑名单和查重流程。
+
+## 选择部分作品（0.6.0）
+
+打开 MissAV / 123AV 列表页左下角的 `♥ LoveAV 工具`，点击“选择部分收藏”。页面上方出现选择栏，作品卡片左上角出现复选框。选择栏的板块范围会限制全选、反选、可见区域及关键词操作；“清空全部”清除所有选择。
+
+同一 URL 的重复卡片同步勾选、只提交一次。继续 Load More、替换卡片网格或页面主体时，已选作品保留，新作品默认不勾选。暂时移出页面的已选作品也保留，并显示数量。退出选择后重新打开可继续；刷新或切换到其他页面会清空本页选择。
+
+点击“收藏已选”时固定本次作品清单，只读取这些作品的详情并调用已有分类、查重和 Raindrop 收藏流程。提交进度在原收藏面板显示，目标文件夹沿用已有设置。整页收藏和详情页单个收藏仍可使用。
 
 ## 手动番号处理
 
@@ -90,8 +99,11 @@ node --check loveav-core.js
 node --check filter-core.js
 node --check filter-app.js
 node --check missav-resolver.js
+node --check page-selection.js
 node --check content.js
 node --check background.js
 node --check options.js
 node loveav-core.test.cjs
 ```
+
+页面选择回归测试使用 Playwright（`node page-selection.test.cjs`，可用 `PLAYWRIGHT_CHANNEL=chrome` 指定已安装的 Chrome）。测试在隔离浏览器中拦截所有站点请求，不访问真实网站、不写入 Raindrop。
