@@ -98,67 +98,6 @@
       || /<(?:title|h1|h2)\b[^>]*>\s*(?:Just a moment|Attention Required|Verify you are human|Checking your browser|访问验证|安全验证|Access denied|Error 1015)/i.test(html);
   }
 
-  function extractActresses(doc) {
-    const output = [];
-    const seen = new Set();
-    for (const anchor of doc.querySelectorAll('a[href]')) {
-      const href = anchor.getAttribute('href') || '';
-      const text = cleanText(anchor.textContent || '');
-      if (!/\/actresses?\//i.test(href) || /\/actors?\//i.test(href) || isBadActressName(text)) continue;
-      const key = `${text}|${href}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      output.push(text);
-    }
-    return output;
-  }
-
-  function extractTypeTags(doc) {
-    const output = [];
-
-    function addTypeTag(value) {
-      const text = cleanText(value);
-      if (!text || isBadTypeTag(text)) return;
-      const tag = CORE?.cleanRaindropTag ? CORE.cleanRaindropTag(text) : text;
-      if (tag && !output.includes(tag)) output.push(tag);
-    }
-
-    function isTypeLabelText(value) {
-      return /^(类型|類型|类别|類別|genres?|categor(?:y|ies)|types?)[:：]?$/i.test(cleanText(value).replace(/\s/g, ''));
-    }
-
-    function genreAnchors(container) {
-      if (!container) return [];
-      return [...container.querySelectorAll('a[href]')].filter((anchor) => {
-        const href = anchor.getAttribute('href') || '';
-        const text = cleanText(anchor.textContent || '');
-        return text && !isBadTypeTag(text) && /\/genres?\//i.test(href);
-      });
-    }
-
-    for (const node of doc.querySelectorAll('div, span, p, li, dt, dd')) {
-      const ownText = cleanText(node.childNodes.length === 1 ? node.textContent : '');
-      if (!isTypeLabelText(ownText)) continue;
-      let current = node;
-      for (let depth = 0; depth < 5 && current; depth += 1) {
-        for (const anchor of genreAnchors(current.parentElement)) addTypeTag(anchor.textContent || '');
-        if (output.length) break;
-        current = current.parentElement;
-      }
-      if (output.length) break;
-    }
-
-    if (!output.length) {
-      for (const block of doc.querySelectorAll('div, p, li, section')) {
-        const text = cleanText(block.textContent || '');
-        if (!text || text.length > 180 || !/(类型|類型|类别|類別|genres?|categor(?:y|ies)|types?)\s*[：:]/i.test(text)) continue;
-        for (const anchor of genreAnchors(block)) addTypeTag(anchor.textContent || '');
-        if (output.length) break;
-      }
-    }
-    return output;
-  }
-
   function documentTitle(doc, code) {
     const values = [
       ...doc.querySelectorAll('h1'),
@@ -167,6 +106,14 @@
     ].map((element) => cleanText(element?.textContent || element?.getAttribute?.('content') || '')).filter(Boolean);
     values.push(cleanText(doc.title).replace(/\s*[-|–]\s*MissAV.*$/i, ''));
     return values.find((value) => pageContainsCode(value, code)) || values[0] || code;
+  }
+
+  function extractMetadata(doc, url, site = 'MissAV') {
+    const metadata = globalThis.LoveAVPageMetadata.extract(doc, url, site);
+    return {
+      actresses: metadata.actresses.filter(name => !isBadActressName(name)),
+      typeTags: metadata.typeTags.filter(tag => !isBadTypeTag(tag)),
+    };
   }
 
   function documentCover(doc, pageUrl) {
@@ -224,8 +171,7 @@
           lastError = '页面内容与番号不匹配';
         } else {
           const doc = new DOMParser().parseFromString(html, 'text/html');
-          const actresses = extractActresses(doc);
-          const typeTags = extractTypeTags(doc);
+          const { actresses, typeTags } = extractMetadata(doc, url);
           const playable = pageLooksPlayable(html);
           const status = actresses.length
             ? (playable ? 'ok' : 'page_ok_play_unknown')
@@ -267,6 +213,7 @@
     pageContainsCode,
     pageLooksPlayable,
     pageLooksChallenged,
+    extractMetadata,
     submissionBlockReason(works) {
       const blocked = works.filter((work) => ['access_challenge', 'rate_limited', 'network_error'].includes(work.status));
       return blocked.length ? `${blocked.length} 条遇到访问验证、限流或网络错误，整批未提交。请解决访问问题后重试，不将读取失败当成作品分类。` : '';

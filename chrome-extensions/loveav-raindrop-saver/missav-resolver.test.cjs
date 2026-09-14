@@ -11,7 +11,7 @@ const path = require('node:path');
     await page.route('**/*', route => route.fulfill({ body: '', contentType: 'text/html' }));
     await page.goto('https://example.test');
     await page.setContent(fs.readFileSync(path.join(__dirname, 'filter.html'), 'utf8').replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, ''));
-    for (const file of ['filter-core.js', 'loveav-core.js', 'missav-resolver.js']) await page.addScriptTag({ path: path.join(__dirname, file) });
+    for (const file of ['filter-core.js', 'loveav-core.js', 'page-metadata.js', 'missav-resolver.js']) await page.addScriptTag({ path: path.join(__dirname, file) });
     const results = await page.evaluate(async () => {
       const resolver = LoveAVMissAVResolver;
       window.testRules = { referenceTags: ['测试女优'], exportBlacklist: [], libraryCodeKeys: [] };

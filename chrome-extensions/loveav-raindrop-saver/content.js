@@ -60,20 +60,6 @@
     return url.href;
   }
 
-  function collectAnchorTexts(doc, pattern) {
-    const seen = new Set();
-    const result = [];
-    for (const anchor of doc.querySelectorAll('a[href]')) {
-      const href = anchor.getAttribute('href') || '';
-      if (!pattern.test(href)) continue;
-      const text = textOf(anchor);
-      if (!text || seen.has(text)) continue;
-      seen.add(text);
-      result.push(text);
-    }
-    return result;
-  }
-
   function isDetailUrl(value, site = siteForUrl(value)) {
     try {
       return Boolean(CORE.workCodeFromUrl(new URL(value, location.href).href, site));
@@ -85,10 +71,21 @@
   function workFromDocument(doc, fallbackUrl, hint = {}) {
     const site = siteForUrl(fallbackUrl);
     if (!site || !isDetailUrl(fallbackUrl, site)) return null;
-    const title = titleFromDocument(doc) || hint.title || '';
-    const rawCode = CORE.extractCode(title) || CORE.workCodeFromUrl(new URL(fallbackUrl).href, site) || hint.code || '';
+    const title = titleFromDocument(doc);
+    const rawCode = CORE.workCodeFromUrl(new URL(fallbackUrl).href, site) || hint.code || '';
     const code = normalizeWorkCode(rawCode);
     if (!code) return null;
+    const failure = detailError => ({ site, code, title: hint.title || code, url: fallbackUrl,
+      actresses: [], typeTags: [], needsLookup: true, detailError });
+    if (globalThis.LoveAVMissAVResolver.pageLooksChallenged(doc.documentElement.outerHTML)) return failure('页面要求访问验证，请先完成验证');
+    if (CORE.codeComparableKey(CORE.extractCode(title)) !== CORE.codeComparableKey(code)) return failure('详情页标题番号不匹配，可能返回登录页、列表页或错误页面');
+    const metadata = globalThis.LoveAVMissAVResolver.extractMetadata(doc, fallbackUrl, site);
+    if (!metadata.actresses.length && !metadata.typeTags.length) return failure('未识别到作品元数据标签，已阻止空标签写入');
+    let canonical = fallbackUrl;
+    try {
+      const candidate = canonicalFromDocument(doc, fallbackUrl);
+      if (siteForUrl(candidate) === site && CORE.codeComparableKey(CORE.workCodeFromUrl(candidate, site)) === CORE.codeComparableKey(code)) canonical = candidate;
+    } catch {}
     const coverSource = doc.querySelector('meta[property="og:image"]')?.getAttribute('content')
       || doc.querySelector('meta[name="twitter:image"]')?.getAttribute('content')
       || '';
@@ -100,10 +97,10 @@
       site,
       code,
       title,
-      url: canonicalFromDocument(doc, fallbackUrl),
+      url: canonical,
       cover,
-      actresses: collectAnchorTexts(doc, /\/(?:actress(?:es)?|actor(?:s)?)\//i),
-      typeTags: collectAnchorTexts(doc, /\/(?:genres?|categor(?:y|ies))\//i),
+      actresses: metadata.actresses,
+      typeTags: metadata.typeTags,
       needsLookup: false,
     };
   }
@@ -167,7 +164,7 @@
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const html = await response.text();
       const doc = new DOMParser().parseFromString(html, 'text/html');
-      return workFromDocument(doc, item.url, item) || { ...item, actresses: [], typeTags: [], cover: '', needsLookup: true };
+      return workFromDocument(doc, item.url, item) || { ...item, actresses: [], typeTags: [], cover: '', needsLookup: true, detailError: '没有识别到有效作品详情' };
     } catch (error) {
       return { ...item, actresses: [], typeTags: [], cover: '', needsLookup: true, detailError: error.message || String(error) };
     }
@@ -272,7 +269,14 @@
     ui.logs.textContent = '';
     setStats({ total: detail ? 1 : listed.length, parsed: 0, created: 0, existing: 0, excluded: 0, failed: 0 });
     try {
+      const { loveavRules } = await new Promise(resolve => chrome.storage.local.get('loveavRules', resolve));
+      const logTags = work => {
+        const classified = CORE.classifyWork(work, loveavRules);
+        addLog(`${work.code} 标签：${classified.tags.join('，')}；LoveAV 分类：${classified.folder}`);
+      };
       if (detail) {
+        if (detail.detailError) throw new Error(`${detail.code}：${detail.detailError}；未提交 Raindrop`);
+        logTags(detail);
         setPhase(`正在查重、分类并保存 ${detail.code}…`);
         setProgress(0, 1);
         addLog(`已识别当前作品：${detail.code}`);
@@ -298,7 +302,8 @@
           setProgress(done, total);
           setStats({ parsed: done });
           setPhase(`正在解析作品详情：${done}/${total}`);
-          addLog(`${item.code} ${result?.detailError ? '详情读取失败，将进入需要查找' : '详情读取完成'}`, result?.detailError ? 'warn' : 'info');
+          if (result?.detailError) addLog(`${item.code}：${result.detailError}；不会提交空标签`, 'error');
+          else if (result) logTags(result);
         });
         if (cancelled) {
           setPhase('已停止，未执行 Raindrop 写入', 'warn');
@@ -306,6 +311,11 @@
           return;
         }
         const completedWorks = works.filter(Boolean);
+        const failedWorks = completedWorks.filter(work => work.detailError);
+        if (failedWorks.length) {
+          setStats({ failed: failedWorks.length });
+          throw new Error(`${failedWorks.length} 条详情读取或标签识别失败，整批未提交 Raindrop；请查看上方原因`);
+        }
         setPhase(`正在查重、分类并批量写入 ${completedWorks.length} 个作品…`);
         addLog('开始执行 LoveAV 5.13 分类、黑名单和 Raindrop 查重');
         const response = await chrome.runtime.sendMessage({ type: 'loveav-save-works', works: completedWorks });
