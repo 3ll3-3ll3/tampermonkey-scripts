@@ -19,8 +19,10 @@
         found.push({ key: `${title}::${ordinal}`, title, section, grid, button });
       };
       if (location.hostname.includes('123av')) {
-        for (const [index, section] of [...document.querySelectorAll('.featured')].entries()) {
-          found.push({ key: `featured::${index}`, title: '顶部推荐轮播', section, grid: section, button: null, featured: true });
+        // `.featured` can be a single slide, not the carousel container.
+        // Aggregate the same page-wide selector as the standalone userscript.
+        if (document.querySelector('.featured .featured__link[href]')) {
+          found.push({ key: 'featured::all', title: '顶部推荐轮播', button: null, featured: true });
         }
         for (const section of document.querySelectorAll('.rec__section')) add(section, section.querySelector('.rec__grid'), section.querySelector('.rec__more-btn'));
       } else {
@@ -39,7 +41,9 @@
         }
       }
       const anchors = scan();
-      return found.map((item) => ({ ...item, works: unique(anchors.filter(({ anchor }) => item.grid.contains(anchor) && (!item.featured || anchor.matches('.featured__link[href]'))).map(({ work, anchor }) => item.featured
+      return found.map((item) => ({ ...item, works: unique(anchors.filter(({ anchor }) => item.featured
+        ? anchor.matches('.featured .featured__link[href]')
+        : item.grid.contains(anchor)).map(({ work, anchor }) => item.featured
         ? { ...work, title: text(anchor.querySelector('h1,h2,h3,h4,h5,h6')) || text(anchor) || work.title }
         : work)) }));
     }

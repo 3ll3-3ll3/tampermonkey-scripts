@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "LoveAV 一体化工具",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "description": "集成番号过滤、手动番号解析及 MissAV / 123AV 一键收藏到 Raindrop。",
   "action": {
     "default_title": "打开 LoveAV 一体化工作台"
