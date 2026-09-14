@@ -91,7 +91,11 @@
   }
 
   function pageLooksChallenged(pageHtml) {
-    return /cf-chl-|cloudflare|captcha|verify you are human|checking your browser|访问验证|安全验证/i.test(String(pageHtml || ''));
+    const html = String(pageHtml || '');
+    // Cloudflare analytics/CDN and background challenge scripts also occur on
+    // valid detail pages. Only explicit interstitial UI is a challenge.
+    return /(?:id|class)\s*=\s*["'][^"']*(?:cf-chl-widget|cf-challenge|challenge-form|challenge-running|cf-error-details)/i.test(html)
+      || /<(?:title|h1|h2)\b[^>]*>\s*(?:Just a moment|Attention Required|Verify you are human|Checking your browser|访问验证|安全验证|Access denied|Error 1015)/i.test(html);
   }
 
   function extractActresses(doc) {
@@ -120,7 +124,7 @@
     }
 
     function isTypeLabelText(value) {
-      return /^(类型|類型|类别|類別)[:：]?$/.test(cleanText(value).replace(/\s/g, ''));
+      return /^(类型|類型|类别|類別|genres?|categor(?:y|ies)|types?)[:：]?$/i.test(cleanText(value).replace(/\s/g, ''));
     }
 
     function genreAnchors(container) {
@@ -147,7 +151,7 @@
     if (!output.length) {
       for (const block of doc.querySelectorAll('div, p, li, section')) {
         const text = cleanText(block.textContent || '');
-        if (!text || text.length > 180 || !/(类型|類型|类别|類別)\s*[：:]/i.test(text)) continue;
+        if (!text || text.length > 180 || !/(类型|類型|类别|類別|genres?|categor(?:y|ies)|types?)\s*[：:]/i.test(text)) continue;
         for (const anchor of genreAnchors(block)) addTypeTag(anchor.textContent || '');
         if (output.length) break;
       }
@@ -205,19 +209,15 @@
     const code = normalizeCode(value);
     const urls = candidateUrls(code, options.origin);
     let lastError = '';
-    let lastStatus = 0;
-    let challenged = false;
-    let rateLimited = false;
+    let networkError = '';
     for (let index = 0; index < urls.length; index += 1) {
       const url = urls[index];
       options.onAttempt?.({ code, url, index: index + 1, total: urls.length });
       try {
         const html = await fetchText(url, options);
         if (pageLooksChallenged(html)) {
-          challenged = true;
-          lastError = '页面要求访问验证';
-          if (index < urls.length - 1) await sleep(options.candidateDelayMs ?? CANDIDATE_DELAY_MS);
-          continue;
+          return { site: 'MissAV', code, url, title: code, cover: '', actresses: [], typeTags: [],
+            status: 'access_challenge', needsLookup: true, error: '页面要求访问验证；请先在浏览器中完成验证' };
         }
         const hasCode = pageContainsCode(html, code);
         if (!hasCode) {
@@ -240,17 +240,21 @@
         }
       } catch (error) {
         if (error?.name === 'AbortError') throw error;
-        lastStatus = Number(error?.status) || 0;
-        if (lastStatus === 401 || lastStatus === 403) challenged = true;
-        if (lastStatus === 429) rateLimited = true;
+        const lastStatus = Number(error?.status) || 0;
+        if ([401, 403, 429].includes(lastStatus)) {
+          return { site: 'MissAV', code, url, title: code, cover: '', actresses: [], typeTags: [],
+            status: lastStatus === 429 ? 'rate_limited' : 'access_challenge', needsLookup: true,
+            error: error.message || String(error) };
+        }
         lastError = error?.message || String(error);
+        if (lastStatus !== 404) networkError = lastError;
       }
       if (index < urls.length - 1) await sleep(options.candidateDelayMs ?? CANDIDATE_DELAY_MS);
     }
-    const status = rateLimited ? 'rate_limited' : challenged ? 'access_challenge' : lastStatus && lastStatus !== 404 ? 'network_error' : 'not_found';
+    const status = networkError ? 'network_error' : 'not_found';
     return {
       site: 'MissAV', code, url: urls[0], title: code, cover: '', actresses: [], typeTags: [],
-      status, needsLookup: true, error: lastError || '全部候选地址均未匹配',
+      status, needsLookup: true, error: networkError || lastError || '全部候选地址均未匹配',
     };
   }
 
@@ -263,6 +267,10 @@
     pageContainsCode,
     pageLooksPlayable,
     pageLooksChallenged,
+    submissionBlockReason(works) {
+      const blocked = works.filter((work) => ['access_challenge', 'rate_limited', 'network_error'].includes(work.status));
+      return blocked.length ? `${blocked.length} 条遇到访问验证、限流或网络错误，整批未提交。请解决访问问题后重试，不将读取失败当成作品分类。` : '';
+    },
     resolveWork,
   };
 });

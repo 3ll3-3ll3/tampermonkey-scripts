@@ -4,6 +4,8 @@ const core = globalThis.MissAVCodeFilterCore;
 if (!core) throw new Error('过滤核心加载失败');
 const resolver = globalThis.LoveAVMissAVResolver;
 if (!resolver) throw new Error('MissAV 解析核心加载失败');
+const loveavCore = globalThis.LoveAVCore;
+if (!loveavCore) throw new Error('LoveAV 分类核心加载失败');
 
 const source = document.querySelector('#source');
 const result = document.querySelector('#result');
@@ -246,8 +248,15 @@ async function runManualWorkflow() {
       works.push(work);
       setManualStats({ parsed: works.length });
       const kind = work.status === 'ok' || work.status === 'page_ok_play_unknown' ? 'success' : 'warn';
-      addManualLog(`${code}：${work.status}；女优 ${work.actresses.length}；类型 ${work.typeTags.length}${work.needsLookup ? '；需要查找' : ''}`, kind);
+      const classified = loveavCore.classifyWork(work, loveavRules);
+      const target = loveavCore.destinationForWork(classified, loveavSettings || {});
+      addManualLog(`${code}：${work.status}；分类：${classified.folder}；标签：${classified.tags.join('，')}；目标文件夹：${target.name}${work.error ? `；原因：${work.error}` : ''}`, kind);
       setManualProgress(index + 1, queue.length);
+      const blockedReason = resolver.submissionBlockReason(works);
+      if (blockedReason) {
+        setManualStats({ problem: works.filter((item) => item.needsLookup).length });
+        throw new Error(blockedReason);
+      }
       if (index < queue.length - 1) await abortableDelay(resolver.DELAY_MS, manualController.signal);
     }
 
