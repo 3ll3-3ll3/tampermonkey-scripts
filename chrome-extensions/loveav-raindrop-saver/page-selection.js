@@ -11,6 +11,8 @@
     let cards = [];
     let frame = 0;
     let groupSignature = '';
+    let toolbarPosition = null;
+    let drag = null;
     const keyOf = (work) => work.url.toLowerCase();
 
     function cardFor(anchor) {
@@ -52,15 +54,19 @@
 
     function ensureHost() {
       if (host?.isConnected) return;
-      if (host) { document.documentElement.append(host); return; }
+      if (host) { document.documentElement.append(host); raiseHost(); return; }
       host = document.createElement('div');
       host.id = 'loveav-page-selection';
-      host.style.cssText = 'all:initial!important;position:fixed!important;inset:0!important;pointer-events:none!important;z-index:2147483646!important;';
+      host.style.cssText = 'all:initial!important;position:fixed!important;inset:0!important;width:100%!important;height:100%!important;margin:0!important;padding:0!important;border:0!important;background:transparent!important;overflow:visible!important;pointer-events:none!important;z-index:2147483647!important;';
+      // The browser top layer keeps site navigation from intercepting toolbar clicks.
+      if (typeof host.showPopover === 'function') host.setAttribute('popover', 'manual');
       shadow = host.attachShadow({ mode: 'open' });
       shadow.innerHTML = `
         <style>
           *{box-sizing:border-box} [hidden]{display:none!important}
-          .toolbar{position:fixed;top:12px;left:50%;transform:translateX(-50%);width:min(940px,calc(100vw - 24px));padding:12px;pointer-events:auto;background:#0f172af5;color:#e2e8f0;border:1px solid #64748b;border-radius:12px;box-shadow:0 8px 28px #0007;font:13px/1.5 system-ui,"Microsoft YaHei",sans-serif;z-index:2}
+          :host::backdrop{background:transparent;pointer-events:none}
+          .toolbar{position:fixed;bottom:16px;left:12px;width:min(860px,calc(100vw - 24px));max-height:calc(100vh - 24px);overflow:auto;padding:12px;pointer-events:auto;background:#0f172af5;color:#e2e8f0;border:1px solid #64748b;border-radius:12px;box-shadow:0 8px 28px #0007;font:13px/1.5 system-ui,"Microsoft YaHei",sans-serif;z-index:2}
+          .handle{cursor:grab;touch-action:none;user-select:none;color:#c7d2fe}.handle:active{cursor:grabbing}.toolbar.compact .extras{display:none}.toolbar .header{position:sticky;top:-12px;background:#0f172a;padding:5px 0;z-index:1}.header button{flex-shrink:0}.count{min-width:0;overflow-wrap:anywhere}
           .row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.row+.row{margin-top:8px}.count{margin-right:auto;font-weight:700}.note{color:#a5b4fc;font-size:12px}
           button,select,textarea{font:inherit;color:inherit;background:#334155;border:1px solid #64748b;border-radius:7px;padding:6px 9px}button{cursor:pointer}button:disabled{opacity:.45;cursor:default}.save{background:#4f46e5}textarea{flex:1;min-width:150px;height:36px;resize:vertical}select{max-width:230px}
           .card{position:fixed;border-radius:8px;pointer-events:none;border:2px solid transparent}.card.selected{border-color:#818cf8;box-shadow:inset 0 0 0 3px #6366f140;background:#6366f11a}
@@ -69,16 +75,39 @@
         </style>
         <div class="layer"></div>
         <section class="toolbar" aria-label="选择作品收藏">
-          <div class="row"><span class="count"></span><button class="save" type="button">收藏已选</button><button class="close" type="button">退出选择</button></div>
-          <div class="row"><select class="groups" aria-label="选择板块"></select><button data-select="all">全选</button><button data-select="invert">反选</button><button data-select="visible">选择可见区域</button><button data-select="clear">清空全部</button></div>
-          <div class="row"><textarea class="keyword" aria-label="标题关键词或多行番号" placeholder="标题关键词或多行番号（每行一个，匹配任意一行）"></textarea><button data-select="match">勾选匹配</button></div>
-          <div class="note">全选、反选、可见区域与关键词选择作用于所选板块。新加载作品默认不勾选。</div>
+          <div class="row header"><span class="handle" title="拖动移动选择栏">⠿ 拖动</span><span class="count"></span><button class="save" type="button">收藏已选</button><button class="collapse" type="button" aria-expanded="true">收起</button><button class="reset" type="button">重置位置</button><button class="close" type="button">退出选择</button></div>
+          <div class="row extras"><select class="groups" aria-label="选择板块"></select><button data-select="all">全选</button><button data-select="invert">反选</button><button data-select="visible">选择可见区域</button><button data-select="clear">清空全部</button></div>
+          <div class="row extras"><textarea class="keyword" aria-label="标题关键词或多行番号" placeholder="标题关键词或多行番号（每行一个，匹配任意一行）"></textarea><button data-select="match">勾选匹配</button></div>
+          <div class="note extras">全选、反选、可见区域与关键词选择作用于所选板块。新加载作品默认不勾选。</div>
         </section>`;
       layer = shadow.querySelector('.layer');
       toolbar = shadow.querySelector('.toolbar');
       count = shadow.querySelector('.count');
       groups = shadow.querySelector('.groups');
       keyword = shadow.querySelector('.keyword');
+      const handle = toolbar.querySelector('.handle');
+      handle.addEventListener('pointerdown', (event) => {
+        if (event.button !== 0) return;
+        const rect = toolbar.getBoundingClientRect();
+        drag = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+        handle.setPointerCapture(event.pointerId);
+        event.preventDefault();
+      });
+      handle.addEventListener('pointermove', (event) => {
+        if (!drag) return;
+        toolbarPosition = { x: event.clientX - drag.x, y: event.clientY - drag.y };
+        placeToolbar();
+      });
+      handle.addEventListener('pointerup', () => { drag = null; });
+      handle.addEventListener('lostpointercapture', () => { drag = null; });
+      toolbar.querySelector('.reset').addEventListener('click', () => { toolbarPosition = null; placeToolbar(); });
+      toolbar.querySelector('.collapse').addEventListener('click', (event) => {
+        const compact = toolbar.classList.toggle('compact');
+        event.currentTarget.textContent = compact ? '展开' : '收起';
+        event.currentTarget.setAttribute('aria-expanded', String(!compact));
+        placeToolbar();
+      });
+      new ResizeObserver(() => { if (active) placeToolbar(); }).observe(toolbar);
       toolbar.querySelector('.close').addEventListener('click', () => setActive(false));
       toolbar.querySelector('.save').addEventListener('click', () => {
         if (!busy && selected.size) save([...selected.values()].map((work) => ({ ...work })));
@@ -88,6 +117,22 @@
         if (mode && !busy) selectBy(mode);
       });
       document.documentElement.append(host);
+      raiseHost();
+    }
+
+    function raiseHost() {
+      if (active && host.hasAttribute('popover') && !host.matches(':popover-open')) host.showPopover();
+    }
+
+    function placeToolbar() {
+      const rect = toolbar.getBoundingClientRect();
+      const maxX = Math.max(12, innerWidth - rect.width - 12);
+      const maxY = Math.max(12, innerHeight - rect.height - 12);
+      const x = Math.min(maxX, Math.max(12, toolbarPosition?.x ?? (innerWidth - rect.width) / 2));
+      const y = Math.min(maxY, Math.max(12, toolbarPosition?.y ?? maxY));
+      toolbar.style.left = `${x}px`;
+      toolbar.style.top = `${y}px`;
+      toolbar.style.bottom = 'auto';
     }
 
     function selectBy(mode) {
@@ -123,6 +168,7 @@
       for (const control of toolbar.querySelectorAll('button,select,textarea')) control.disabled = busy;
       toolbar.querySelector('.close').disabled = false;
       toolbar.querySelector('.save').disabled = busy || !selected.size;
+      placeToolbar();
       // Only create overlays for cards visible in the viewport; large loaded lists remain cheap to display.
       layer.replaceChildren();
       for (const item of cards) {
@@ -183,8 +229,11 @@
 
     function setActive(value) {
       active = value;
-      if (active) { ensureHost(); host.style.setProperty('display', 'block', 'important'); refresh(); }
-      else if (host) host.style.setProperty('display', 'none', 'important');
+      if (active) { ensureHost(); host.style.setProperty('display', 'block', 'important'); raiseHost(); refresh(); }
+      else if (host) {
+        if (host.hasAttribute('popover') && host.matches(':popover-open')) host.hidePopover();
+        host.style.setProperty('display', 'none', 'important');
+      }
       onChange?.(selected.size);
     }
 

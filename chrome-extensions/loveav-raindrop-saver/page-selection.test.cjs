@@ -82,6 +82,33 @@ const path = require('node:path');
       await overlay.getByRole('button', { name: '勾选匹配', exact: true }).click();
       await selected(2);
 
+      // A site header at the highest CSS z-index must not intercept the save button.
+      await page.evaluate(() => {
+        const nav = document.createElement('nav');
+        nav.id = 'blocking-nav';
+        nav.style.cssText = 'position:fixed;inset:0 0 auto;height:160px;background:#111;z-index:2147483647';
+        nav.textContent = 'Site navigation';
+        document.documentElement.append(nav);
+      });
+      await overlay.getByRole('button', { name: '收起', exact: true }).click();
+      assert.equal(await overlay.getByRole('button', { name: '全选', exact: true }).isVisible(), false);
+      const grip = await overlay.locator('.handle').boundingBox();
+      await page.mouse.move(grip.x + 10, grip.y + 8);
+      await page.mouse.down();
+      await page.mouse.move(40, 40, { steps: 8 });
+      await page.mouse.up();
+      const reachableSave = await overlay.locator('.save').boundingBox();
+      assert.ok(reachableSave.y < 160, 'drag must move save button into the header region for regression');
+      await overlay.locator('.save').click({ trial: true, timeout: 2000 });
+      await page.setViewportSize({ width: 600, height: 550 });
+      await overlay.locator('.save').click({ trial: true, timeout: 2000 });
+      const resized = await overlay.locator('.toolbar').boundingBox();
+      assert.ok(resized.x >= 0 && resized.x + resized.width <= 600 && resized.y >= 0 && resized.y + resized.height <= 550);
+      await page.setViewportSize({ width: 1200, height: 900 });
+      await overlay.getByRole('button', { name: '重置位置', exact: true }).click();
+      await overlay.getByRole('button', { name: '展开', exact: true }).click();
+      assert.ok((await overlay.locator('.toolbar').boundingBox()).y > 160);
+
       // Host/body replacement does not lose selected snapshots, even when a selected card disappears.
       await page.evaluate(() => {
         const body = document.body.cloneNode(true);
