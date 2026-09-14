@@ -14,6 +14,7 @@ const DEFAULT_SETTINGS = Object.freeze({
     actionBehavior: 'workbench',
     pagePrimaryAction: 'save',
     autoFilter: true,
+    manualMode: 'standard',
   },
   collectionNames: {
     [CORE.FOLDERS.reference]: CORE.FOLDERS.reference,

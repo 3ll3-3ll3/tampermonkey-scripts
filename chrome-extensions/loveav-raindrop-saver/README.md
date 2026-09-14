@@ -6,10 +6,21 @@
 
 - 默认点击 Chrome 扩展图标打开番号过滤工作台；也可以改为直接收藏当前网页或打开设置；
 - 在任意网页打开工作台，粘贴任意长度文字或导入多个文件，按 MissAV Manager v0.5.13 兼容规则过滤、去重、复制或下载番号；
+- 可以把过滤结果作为手动番号批次，选择“标准处理、全量重查、只解析预览”后，串行读取 MissAV 候选页面并直接提交 Raindrop；
 - MissAV / 123AV 左下角常驻 `♥ LoveAV 工具`，同时保留“收藏到 Raindrop”和“提取并过滤”两个按钮；
 - 设置页可以选择网站面板的主按钮，并控制工作台是否输入后自动过滤；
 - “提取并过滤”只把当前页面已经识别的作品标题和链接传给扩展自己的本地页面，不会写入 Raindrop；
 - “收藏到 Raindrop”仍使用 LoveAV 分类、黑名单和查重流程。
+
+## 手动番号处理
+
+1. 点击扩展图标打开一体化工作台，把番号或含番号的任意文字粘贴到左侧；
+2. 在“手动番号 → MissAV → Raindrop”区域选择模式；
+3. 点击“处理并提交 Raindrop”。扩展按 v0.5.13 候选地址顺序逐条验证，番号之间保持 900ms 串行节流；
+4. 全部页面解析完成后，统一执行 LoveAV 分类、第二层黑名单、Raindrop URL 查重和批量写入；
+5. 处理日志会逐条显示候选地址、解析状态、目标收藏夹及新增/已存在/排除/失败结果。
+
+标准模式会跳过正式主体库已经存在的番号。升级到 0.5.0 后需要在设置页重新导入一次 `missav-library.csv` 和两份黑名单，才能建立本地番号索引。全量重查不跳过主体库，但仍不会重复写入 Raindrop 已有 URL；只解析预览不会写入 Raindrop。
 
 ## 行为
 
@@ -78,6 +89,7 @@ Client Secret、access token 与 refresh token 只保存在本机扩展存储，
 node --check loveav-core.js
 node --check filter-core.js
 node --check filter-app.js
+node --check missav-resolver.js
 node --check content.js
 node --check background.js
 node --check options.js

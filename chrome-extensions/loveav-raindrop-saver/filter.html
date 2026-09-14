@@ -41,9 +41,33 @@
       <label class="auto-filter"><input id="auto-filter" type="checkbox" checked> 输入后自动过滤</label>
       <span class="shortcut">Ctrl + Enter 执行</span>
     </section>
-    <p class="privacy-note">过滤器不请求网络、不保存输入历史；从网站面板转来的标题只在本次工作台标签页中使用。Raindrop 收藏只会在你点击网站面板的收藏按钮时执行。</p>
+    <section class="manual-card" aria-labelledby="manual-title">
+      <div class="manual-heading">
+        <div><h2 id="manual-title">手动番号 → MissAV → Raindrop</h2><p>使用左侧输入框过滤出的番号，按 LoveAV v0.5.13 流程串行解析后提交。</p></div>
+        <div class="manual-controls">
+          <label>处理模式
+            <select id="manual-mode">
+              <option value="standard">标准处理：跳过主体库已有番号</option>
+              <option value="all">全量重查：全部重新解析</option>
+              <option value="preview">只解析预览：不提交 Raindrop</option>
+            </select>
+          </label>
+          <button id="manual-run" class="primary" type="button">处理并提交 Raindrop</button>
+          <button id="manual-stop" class="danger" type="button" disabled>停止</button>
+        </div>
+      </div>
+      <div class="manual-progress"><progress id="manual-progress" max="100" value="0"></progress><span id="manual-progress-text">尚未开始</span></div>
+      <div class="manual-stats">
+        <span>输入 <b data-manual-stat="input">0</b></span><span>主体库已有 <b data-manual-stat="history">0</b></span><span>已解析 <b data-manual-stat="parsed">0</b></span><span>新增 <b data-manual-stat="created">0</b></span><span>已存在 <b data-manual-stat="existing">0</b></span><span>排除/失败 <b data-manual-stat="problem">0</b></span>
+      </div>
+      <div id="manual-log" class="manual-log" role="log"><div>等待输入番号。所有 MissAV 请求按 900ms 串行节流执行。</div></div>
+      <p class="manual-note">标准模式会使用你在设置页导入的正式主体库索引；全部页面解析结束后才整批写入，停止解析不会产生部分 Raindrop 写入。</p>
+    </section>
+    <p class="privacy-note">普通番号过滤完全本地运行且不保存输入历史；只有点击“处理并提交”后才会读取 MissAV 候选页面并访问 Raindrop。私人主体库和黑名单不会上传。</p>
   </main>
   <script src="filter-core.js"></script>
+  <script src="loveav-core.js"></script>
+  <script src="missav-resolver.js"></script>
   <script src="filter-app.js"></script>
 </body>
 </html>

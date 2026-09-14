@@ -3,6 +3,9 @@
 const assert = require('node:assert/strict');
 const core = require('./loveav-core.js');
 const filter = require('./filter-core.js');
+global.MissAVCodeFilterCore = filter;
+global.LoveAVCore = core;
+const resolver = require('./missav-resolver.js');
 
 assert.equal(core.extractCode('SNOS-355-Uncensored-Leaked'), 'SNOS-355');
 assert.equal(core.extractCode('FC2-PPV-4972103'), 'FC2-PPV-4972103');
@@ -23,13 +26,22 @@ assert.deepEqual(
 );
 
 const library = [
-  'tags,loveav_variants_json',
-  '"小泽菜穗,美乳","[{""tags"":""小沢菜穗,熟女""}]"',
-  '"黑名单女优,人妻","[]"',
+  'tags,loveav_variants_json,loveav_canonical_code',
+  '"小泽菜穗,美乳","[{""tags"":""小沢菜穗,熟女""}]","300MIUM-1446"',
+  '"黑名单女优,人妻","[]","START-619V"',
 ].join('\n');
 const rules = core.deriveRules(library, '黑名单女优', '熟女');
 assert.deepEqual(rules.referenceTags, ['小泽菜穗', '小沢菜穗']);
 assert.deepEqual(rules.exportBlacklist, ['熟女']);
+assert.deepEqual(rules.libraryCodeKeys, ['MIUM1446', 'START619']);
+assert.equal(rules.stats.libraryCodesStored, 2);
+assert.equal(core.codeComparableKey('300MIUM-1446'), 'MIUM1446');
+assert.equal(core.codeComparableKey('START-619V'), 'START619');
+assert.equal(resolver.normalizeCode('START-619V-Uncensored-Leaked'), 'START-619');
+assert.equal(resolver.candidateUrls('SNOS-355')[0], 'https://missav.ai/cn/snos-355');
+assert.equal(resolver.candidateUrls('FC2-PPV-4972103').length, 5);
+assert.equal(resolver.pageContainsCode('<title>SNOS-355 Uncensored</title>', 'SNOS-355'), true);
+assert.equal(resolver.pageLooksChallenged('<title>Just a moment...</title><div class="cf-chl-widget">'), true);
 
 const reference = core.classifyWork({
   code: 'DLDSS-533', actresses: ['小泽菜穗'], typeTags: ['美乳'], needsLookup: false,

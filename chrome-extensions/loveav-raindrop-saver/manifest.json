@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "LoveAV 一体化工具",
-  "version": "0.4.0",
-  "description": "集成 v0.5.13 番号过滤器与 MissAV / 123AV 一键收藏到 Raindrop。",
+  "version": "0.5.0",
+  "description": "集成番号过滤、手动番号解析及 MissAV / 123AV 一键收藏到 Raindrop。",
   "action": {
     "default_title": "打开 LoveAV 一体化工作台"
   },
@@ -18,7 +18,11 @@
   ],
   "host_permissions": [
     "https://api.raindrop.io/*",
-    "https://raindrop.io/*"
+    "https://raindrop.io/*",
+    "https://missav.ai/*",
+    "https://*.missav.ai/*",
+    "https://missav.ws/*",
+    "https://*.missav.ws/*"
   ],
   "content_scripts": [
     {

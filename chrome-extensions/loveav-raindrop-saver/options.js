@@ -6,11 +6,19 @@ const folderInputs = new Map();
 const siteFolderSettings = document.getElementById('site-folder-settings');
 const siteFolderInputs = new Map();
 const SITE_DEFAULTS = Object.freeze({ MissAV: 'MissAV', '123AV': 'javxxx&123av' });
+let loadedSettings = {};
 
 function setStatus(id, message, kind = '') {
   const element = document.getElementById(id);
   element.textContent = message;
   element.dataset.kind = kind;
+}
+
+function ruleStatsText(stats) {
+  const codeIndex = Number.isFinite(Number(stats?.libraryCodesStored))
+    ? `${Number(stats.libraryCodesStored)} 个`
+    : '旧版索引（需重新导入）';
+  return `规则已就绪：主体库 ${stats?.libraryRows || 0} 行，番号索引 ${codeIndex}，参考女优 Tag ${stats?.referenceTagsStored || 0} 个，导出黑名单 ${stats?.exportBlacklistTagsStored || 0} 个。`;
 }
 
 function send(message) {
@@ -46,7 +54,7 @@ async function importRuleFiles(library, referenceBlacklist, exportBlacklist) {
   const stats = rules.stats;
   setStatus(
     'rules-status',
-    `规则已就绪：主体库 ${stats.libraryRows} 行，参考女优 Tag ${stats.referenceTagsStored} 个，导出黑名单 ${stats.exportBlacklistTagsStored} 个。`,
+    ruleStatsText(stats),
     'success',
   );
 }
@@ -110,6 +118,7 @@ document.getElementById('disconnect').addEventListener('click', async () => {
 });
 
 function renderFolderSettings(settings) {
+  loadedSettings = settings || {};
   folderSettings.replaceChildren();
   folderInputs.clear();
   for (const folder of Object.values(CORE.FOLDERS)) {
@@ -194,6 +203,8 @@ document.getElementById('save-settings').addEventListener('click', async () => {
         actionBehavior: document.getElementById('action-behavior').value,
         pagePrimaryAction: document.getElementById('page-primary-action').value,
         autoFilter: document.getElementById('auto-filter-setting').checked,
+        manualMode: ['standard', 'all', 'preview'].includes(loadedSettings.workflow?.manualMode)
+          ? loadedSettings.workflow.manualMode : 'standard',
       },
       siteCollectionNames,
       siteCollectionIds,
@@ -228,7 +239,7 @@ async function init() {
     document.getElementById('redirect-uri').textContent = status.redirectUri;
     if (status.rulesReady) {
       const stats = status.ruleStats;
-      setStatus('rules-status', `规则已就绪：主体库 ${stats.libraryRows} 行，参考女优 Tag ${stats.referenceTagsStored} 个，导出黑名单 ${stats.exportBlacklistTagsStored} 个。`, 'success');
+      setStatus('rules-status', ruleStatsText(stats), 'success');
     } else setStatus('rules-status', '尚未导入规则', 'error');
     if (status.authorized) {
       setStatus('oauth-status', `Raindrop 已授权，有效期至 ${new Date(status.expiresAt).toLocaleString()}（到期会自动刷新）`, 'success');
@@ -242,7 +253,7 @@ async function init() {
       siteCollectionIds: {},
       collectionNames: {},
       collectionIds: {},
-      workflow: { actionBehavior: 'workbench', pagePrimaryAction: 'save', autoFilter: true },
+      workflow: { actionBehavior: 'workbench', pagePrimaryAction: 'save', autoFilter: true, manualMode: 'standard' },
       autoCreateCollections: true,
     });
   }

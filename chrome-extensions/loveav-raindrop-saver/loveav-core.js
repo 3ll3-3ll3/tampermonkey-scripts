@@ -83,6 +83,15 @@
     return match ? `${match[1]}-${match[2]}` : code;
   }
 
+  function codeComparableKey(value) {
+    let code = normalizeCode(value);
+    const numericStudio = code.match(/^\d{3}([A-Z]{2,8})[-_](\d{2,5})$/i);
+    if (numericStudio) code = `${numericStudio[1]}-${numericStudio[2]}`;
+    code = code.replace(/(\d)V$/i, '$1');
+    const fc2 = extractFC2Number(code);
+    return fc2 ? `FC2PPV${fc2}` : code.replace(/[-_\s]+/g, '').toUpperCase();
+  }
+
   function extractCode(value) {
     const text = cleanText(value).toUpperCase();
     const fc2 = extractFC2Number(text);
@@ -213,6 +222,7 @@
     const headers = rows[0].map((item) => cleanText(item).toLowerCase());
     const tagsIndex = headers.indexOf('tags');
     const variantsIndex = headers.indexOf('loveav_variants_json');
+    const canonicalCodeIndex = headers.indexOf('loveav_canonical_code');
     if (tagsIndex < 0 || variantsIndex < 0) throw new Error('所选文件不是 LoveAV 正式 missav-library.csv');
     const referenceBlocked = new Set(parseRuleLines(referenceBlacklistText));
     const referenceTags = [];
@@ -220,7 +230,14 @@
     let sourceVariants = 0;
     let beforeBlacklist = 0;
     const beforeSet = new Set();
+    const libraryCodeKeys = [];
+    const libraryCodeSeen = new Set();
     for (const cols of rows.slice(1)) {
+      const libraryKey = canonicalCodeIndex >= 0 ? codeComparableKey(cols[canonicalCodeIndex]) : '';
+      if (libraryKey && !libraryCodeSeen.has(libraryKey)) {
+        libraryCodeSeen.add(libraryKey);
+        libraryCodeKeys.push(libraryKey);
+      }
       const values = [cols[tagsIndex] || ''];
       let variants;
       try {
@@ -250,6 +267,7 @@
       generatedAt: new Date().toISOString(),
       referenceTags,
       exportBlacklist,
+      libraryCodeKeys,
       stats: {
         libraryRows: Math.max(0, rows.length - 1),
         sourceVariants,
@@ -257,6 +275,7 @@
         referenceBlacklistMatches: [...beforeSet].filter((tag) => referenceBlocked.has(tag)).length,
         referenceTagsStored: referenceTags.length,
         exportBlacklistTagsStored: exportBlacklist.length,
+        libraryCodesStored: libraryCodeKeys.length,
       },
     };
   }
@@ -322,6 +341,7 @@
     cleanRaindropTag,
     normalizeCollectionTag,
     normalizeCode,
+    codeComparableKey,
     extractCode,
     workCodeFromUrl,
     destinationForWork,
