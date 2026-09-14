@@ -19,6 +19,9 @@
         found.push({ key: `${title}::${ordinal}`, title, section, grid, button });
       };
       if (location.hostname.includes('123av')) {
+        for (const [index, section] of [...document.querySelectorAll('.featured')].entries()) {
+          found.push({ key: `featured::${index}`, title: '顶部推荐轮播', section, grid: section, button: null, featured: true });
+        }
         for (const section of document.querySelectorAll('.rec__section')) add(section, section.querySelector('.rec__grid'), section.querySelector('.rec__more-btn'));
       } else {
         // Discover grids even after their Load More button disappears at the last page.
@@ -36,7 +39,9 @@
         }
       }
       const anchors = scan();
-      return found.map((item) => ({ ...item, works: unique(anchors.filter(({ anchor }) => item.grid.contains(anchor)).map(({ work }) => work)) }));
+      return found.map((item) => ({ ...item, works: unique(anchors.filter(({ anchor }) => item.grid.contains(anchor) && (!item.featured || anchor.matches('.featured__link[href]'))).map(({ work, anchor }) => item.featured
+        ? { ...work, title: text(anchor.querySelector('h1,h2,h3,h4,h5,h6')) || text(anchor) || work.title }
+        : work)) }));
     }
 
     function status(row, message) { row.status.textContent = message; }
@@ -111,6 +116,66 @@
       finally { running = null; refresh(); }
     }
 
+    function makeFeaturedRow(item) {
+      const element = document.createElement('div');
+      element.className = 'load-row featured-row';
+      element.innerHTML = `<strong>顶部推荐轮播</strong><span class="load-count"></span>
+        <p class="load-note">包含已在页面中的隐藏轮播项，无需手动翻页。可展开标题列表挑选作品。</p>
+        <div class="load-destination"></div>
+        <div class="actions"><button class="secondary featured-all">勾选全部推荐</button><button class="secondary featured-pick">勾选列表中所选</button><button class="secondary featured-save">收藏全部推荐</button><button class="secondary featured-copy">提取并复制全部标题</button></div>
+        <details><summary>展开全部推荐标题 / 挑选</summary><div class="featured-list"></div></details>
+        <div class="load-status" role="status">等待操作</div>`;
+      const row = { key: item.key, element, featured: true, picks: new Set(), signature: '' };
+      for (const name of ['status','count','destination']) row[name] = element.querySelector(`.load-${name}`);
+      const getWorks = () => current(row.key)?.works || [];
+      element.querySelector('.featured-all').addEventListener('click', () => { if (!running && !isBusy()) choose(getWorks()); });
+      element.querySelector('.featured-pick').addEventListener('click', () => {
+        if (running || isBusy()) return;
+        const works = getWorks().filter((work) => row.picks.has(work.url.toLowerCase()));
+        if (works.length) choose(works); else status(row, '请先展开标题列表勾选作品');
+      });
+      element.querySelector('.featured-copy').addEventListener('click', async () => {
+        try {
+          const works = getWorks();
+          if (!works.length) throw Error('没有识别到推荐作品');
+          await navigator.clipboard.writeText(works.map((work) => work.title).join('\n'));
+          status(row, `已复制 ${works.length} 条完整标题（包含番号）`);
+        } catch (error) { status(row, `复制失败：${error.message}；可从下方列表查看标题`); }
+      });
+      element.querySelector('.featured-save').addEventListener('click', async () => {
+        if (running || isBusy()) return;
+        const works = getWorks();
+        if (!works.length) { status(row, '没有识别到推荐作品'); return; }
+        running = row; refresh();
+        try {
+          status(row, `正在收藏 ${works.length} 个推荐作品`);
+          await save(works);
+          status(row, '收藏流程已结束；结果见处理面板');
+        } catch (error) { status(row, error.message || String(error)); }
+        finally { running = null; refresh(); }
+      });
+      return row;
+    }
+
+    function renderFeatured(row, works) {
+      const signature = JSON.stringify(works.map((work) => [work.url, work.title]));
+      if (row.signature === signature) return;
+      row.signature = signature;
+      const list = row.element.querySelector('.featured-list');
+      list.replaceChildren();
+      for (const work of works) {
+        const label = document.createElement('label');
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = row.picks.has(work.url.toLowerCase());
+        checkbox.addEventListener('change', () => {
+          if (checkbox.checked) row.picks.add(work.url.toLowerCase()); else row.picks.delete(work.url.toLowerCase());
+        });
+        label.append(checkbox, document.createTextNode(work.title));
+        list.append(label);
+      }
+    }
+
     function makeRow(item) {
       const element = document.createElement('div');
       element.className = 'load-row';
@@ -131,17 +196,18 @@
       if (!container) return;
       const sections = discover();
       for (const item of sections) {
-        if (!rows.has(item.key)) rows.set(item.key, makeRow(item));
+        if (!rows.has(item.key)) rows.set(item.key, item.featured ? makeFeaturedRow(item) : makeRow(item));
         const row = rows.get(item.key);
         if (row.element.parentElement !== container) container.append(row.element);
         row.count.textContent = ` · 当前 ${item.works.length}`;
-        row.destination.textContent = `收藏目标：${destination()}。按整批加载，最终数量可能略超目标。`;
+        row.destination.textContent = `收藏目标：${destination()}。${item.featured ? '轮播项按作品 URL 去重。' : '按整批加载，最终数量可能略超目标。'}`;
+        if (item.featured) renderFeatured(row, item.works);
       }
       for (const [key, row] of rows) {
         const missing = !sections.some((item) => item.key === key);
         row.element.hidden = missing && running !== row;
         for (const control of row.element.querySelectorAll('input,select,button')) control.disabled = Boolean(running) || isBusy() || missing;
-        row.stop.disabled = running !== row || isBusy();
+        if (row.stop) row.stop.disabled = running !== row || isBusy();
       }
       container.parentElement.querySelector('.load-empty').hidden = sections.length > 0;
       container.parentElement.querySelector('.load-conflict').hidden = !conflict();

@@ -79,6 +79,37 @@ const path = require('node:path');
       await row.locator('.load-start').click();
       assert.match(await row.locator('.load-status').textContent(), /旧油猴/);
       assert.equal(await page.evaluate(() => saved.length), 1);
+      if (site === '123av') {
+        await page.evaluate(() => {
+          const featured = document.createElement('div');
+          featured.className = 'featured';
+          featured.innerHTML = Array.from({ length: 21 }, (_, i) => {
+            const n = 300 + (i % 20);
+            return `<article style="${i ? 'display:none' : ''}"><a class="featured__link" href="/cn/v/abc-${n}"><h3>ABC-${n} 完整推荐标题</h3></a></article>`;
+          }).join('');
+          document.body.prepend(featured);
+          window.copied = '';
+          Object.defineProperty(navigator, 'clipboard', { value: { writeText: async (value) => { window.copied = value; } } });
+          loader.refresh();
+        });
+        const featured = page.locator('.featured-row');
+        assert.match(await featured.locator('.load-count').textContent(), /20/);
+        await featured.locator('.featured-copy').click();
+        assert.equal(await page.evaluate(() => copied.split('\n').length), 20);
+        assert.equal(await page.evaluate(() => copied.split('\n')[19]), 'ABC-319 完整推荐标题');
+        await featured.locator('summary').click();
+        await featured.getByRole('checkbox', { name: 'ABC-319 完整推荐标题', exact: true }).check();
+        await featured.locator('.featured-pick').click();
+        assert.deepEqual(await page.evaluate(() => chosen.at(-1).map((w) => w.url.split('/').pop())), ['abc-319']);
+        await featured.locator('.featured-all').click();
+        assert.equal(await page.evaluate(() => chosen.at(-1).length), 20);
+        const beforeClicks = await page.evaluate(() => clicks);
+        await featured.locator('.featured-save').click();
+        await page.waitForFunction(() => !loader.active && saved.length === 2);
+        assert.equal(await page.evaluate(() => saved.at(-1).length), 20);
+        assert.equal(await page.evaluate(() => clicks), beforeClicks, 'featured must not click Load More or carousel controls');
+        console.log('123av: all 20 hidden featured items, clone dedup, full-title copy, partial selection and featured-only save passed');
+      }
       assert.deepEqual(errors, []);
       console.log(`${site}: load-only, select-new, save-section, overshoot, grid replacement, stop, exhaustion and userscript conflict passed`);
       await page.close();
