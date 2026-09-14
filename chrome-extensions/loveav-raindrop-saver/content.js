@@ -10,12 +10,22 @@
   let cancelled = false;
   let ui = null;
   let workflow = { ...DEFAULT_WORKFLOW };
+  let folderSettings = {};
   const selection = globalThis.LoveAVPageSelection({
     scan: scanWorkAnchors,
     save: (works) => saveCurrent(works),
     onChange: () => {
       if (ui?.choose) ui.choose.textContent = `选择部分收藏${selection.count ? ` · 已选 ${selection.count}` : ''}`;
     },
+  });
+  const loader = globalThis.LoveAVHomeLoader({
+    scan: scanWorkAnchors,
+    choose: (works) => { closePanel(); selection.selectWorks(works); },
+    save: (works) => saveCurrent(works, true),
+    isBusy: () => saving,
+    destination: () => folderSettings.destinationMode === 'classification'
+      ? Object.values(folderSettings.collectionNames || CORE.FOLDERS).join(' / ')
+      : folderSettings.siteCollectionNames?.[siteForUrl()] || (siteForUrl() === '123AV' ? 'javxxx&123av' : 'MissAV'),
   });
 
   function normalizeWorkCode(value) {
@@ -240,8 +250,8 @@
     ui.launcher.hidden = false;
   }
 
-  async function saveCurrent(selectedWorks = null) {
-    if (saving) return;
+  async function saveCurrent(selectedWorks = null, fromLoader = false) {
+    if (saving || (loader.active && !fromLoader)) return;
     const isSelection = Array.isArray(selectedWorks);
     const detail = isSelection ? null : currentDetailWork();
     const listed = isSelection ? selectedWorks.map((work) => ({ ...work })) : detail ? [] : listedWorks();
@@ -376,6 +386,7 @@
       <style>
         *{box-sizing:border-box}button{font:inherit}.launcher,.panel{pointer-events:auto}.launcher{position:fixed;left:18px;bottom:18px;z-index:2147483647;border:1px solid #8b7cf6;border-radius:999px;padding:11px 16px;background:#5b4fcf;color:#fff;font:700 14px/1.2 system-ui,"Microsoft YaHei",sans-serif;box-shadow:0 10px 30px #0006;cursor:pointer}.launcher[hidden],.panel[hidden]{display:none!important}.panel{position:fixed;left:18px;bottom:18px;z-index:2147483647;width:min(500px,calc(100vw - 36px));max-height:min(720px,calc(100vh - 36px));overflow:hidden;border:1px solid #475569;border-radius:15px;background:#0f172af2;color:#e5e7eb;box-shadow:0 18px 55px #0009;font:13px/1.45 system-ui,"Microsoft YaHei",sans-serif}.head{display:flex;align-items:center;justify-content:space-between;padding:13px 14px;border-bottom:1px solid #334155}.title{font-size:16px;font-weight:800}.sub{color:#94a3b8;font-size:12px}.close{border:0;background:transparent;color:#cbd5e1;font-size:22px;cursor:pointer}.body{padding:13px;overflow:auto;max-height:calc(min(720px,100vh - 36px) - 54px)}.phase{margin-bottom:10px;padding:9px 10px;border-radius:8px;background:#1e293b;color:#dbeafe}.phase[data-kind="success"]{background:#064e3b;color:#d1fae5}.phase[data-kind="warn"]{background:#713f12;color:#fef3c7}.phase[data-kind="error"]{background:#7f1d1d;color:#fee2e2}.actions{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}.primary,.secondary{border:0;border-radius:8px;padding:9px 12px;color:#fff;cursor:pointer}.primary{flex:1 1 220px;background:#4f46e5;font-weight:700}.secondary{background:#475569}.secondary.alternate{flex:1 1 170px;background:#0369a1;font-weight:700}.stop{background:#b91c1c}.primary:disabled,.secondary:disabled{opacity:.45;cursor:not-allowed}.barrow{display:flex;align-items:center;gap:9px;margin:8px 0}.barrow progress{width:100%;height:10px;accent-color:#7c6df2}.progress-text{min-width:50px;text-align:right;color:#cbd5e1}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin:10px 0}.stat{padding:7px;border:1px solid #334155;border-radius:8px;background:#172033;text-align:center}.stat b{display:block;font-size:16px;color:#fff}.stat span{color:#94a3b8;font-size:11px}.logs{height:230px;overflow:auto;border:1px solid #334155;border-radius:8px;background:#080f1e;padding:8px;font:12px/1.45 Consolas,"Microsoft YaHei",monospace}.log{padding:3px 0;border-bottom:1px solid #1e293b;color:#cbd5e1}.log.success{color:#86efac}.log.warn{color:#fde68a}.log.error{color:#fca5a5}.ready{margin-top:8px;color:#94a3b8;font-size:12px}
       </style>
+      <style>.load-row{padding:10px;margin:8px 0;border:1px solid #475569;border-radius:9px;background:#172033}.load-row label{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:7px 0}.load-row input,.load-row select{max-width:65%;padding:6px;border:1px solid #64748b;border-radius:6px;background:#0f172a;color:#e2e8f0}.load-destination,.load-status,.load-note{font-size:12px;color:#a5b4fc}.load-conflict{color:#fbbf24}summary{cursor:pointer;padding:8px 0}.load-row[hidden],[hidden].load-empty,[hidden].load-conflict{display:none!important}</style>
       <button class="launcher" type="button" title="打开 LoveAV 网页工作流">♥ LoveAV 工具</button>
       <section class="panel" hidden>
         <div class="head"><div><div class="title">LoveAV 网页工作流</div><div class="sub"></div></div><button class="close" type="button" title="收起">×</button></div>
@@ -383,6 +394,7 @@
           <div class="phase" data-kind="info">正在识别当前页面…</div>
           <div class="actions"><button class="primary action" type="button"></button><button class="secondary alternate" type="button"></button><button class="secondary choose" type="button">选择部分收藏</button><button class="secondary refresh" type="button">刷新识别</button><button class="secondary stop" type="button" disabled>停止</button></div>
           <div class="barrow"><progress max="100" value="0"></progress><span class="progress-text">—</span></div>
+          <details class="home-load"><summary>首页板块加载 → 选择 / 收藏</summary><p class="load-note">一个板块完成后再开始下一个。停止或未达到目标时不自动收藏。</p><p class="load-conflict" hidden>检测到旧油猴加载脚本，请停用对应脚本并刷新网页后使用。</p><p class="load-empty">尚未识别到 Load More 板块</p><div class="load-list"></div></details>
           <div class="stats">
             <div class="stat"><b data-stat="total">0</b><span>识别</span></div><div class="stat"><b data-stat="parsed">0</b><span>已解析</span></div><div class="stat"><b data-stat="created">0</b><span>新增</span></div>
             <div class="stat"><b data-stat="existing">0</b><span>已存在</span></div><div class="stat"><b data-stat="excluded">0</b><span>排除</span></div><div class="stat"><b data-stat="failed">0</b><span>失败</span></div>
@@ -409,6 +421,7 @@
     });
     ui.refresh.addEventListener('click', () => { syncUi(); addLog('已手动刷新页面识别结果'); });
     ui.stop.addEventListener('click', () => { cancelled = true; ui.stop.disabled = true; setPhase('正在停止；已发出的 Raindrop 请求不会强行中断', 'warn'); });
+    loader.mount(find('.load-list'));
     return ui;
   }
 
@@ -420,6 +433,8 @@
     selection.refresh();
     ui.choose.hidden = Boolean(detail);
     ui.choose.disabled = saving || count === 0;
+    if (loader.active) ui.choose.disabled = true;
+    loader.refresh();
     ui.choose.textContent = `选择部分收藏${selection.count ? ` · 已选 ${selection.count}` : ''}`;
     ui.sub.textContent = `${siteForUrl()} · 已识别 ${count} 个作品`;
     if (!saving) {
@@ -427,8 +442,8 @@
       const filterText = filterButtonText();
       ui.action.textContent = workflow.pagePrimaryAction === 'filter' ? filterText : saveText;
       ui.alternate.textContent = workflow.pagePrimaryAction === 'filter' ? saveText : filterText;
-      ui.action.disabled = count === 0;
-      ui.alternate.disabled = count === 0;
+      ui.action.disabled = loader.active || count === 0;
+      ui.alternate.disabled = loader.active || count === 0;
       setStats({ total: count });
       if (ui.phase.textContent === '正在识别当前页面…') {
         setPhase(count ? `已就绪：${detail ? `当前作品 ${detail.code}` : `当前页面 ${count} 个作品`}` : '页面已加载，暂未识别到作品', count ? 'success' : 'warn');
@@ -444,6 +459,7 @@
   });
 
   chrome.storage.local.get('loveavSettings', ({ loveavSettings }) => {
+    folderSettings = loveavSettings || {};
     workflow = { ...DEFAULT_WORKFLOW, ...(loveavSettings?.workflow || {}) };
     syncUi();
   });
@@ -451,6 +467,7 @@
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName !== 'local' || !changes.loveavSettings) return;
     workflow = { ...DEFAULT_WORKFLOW, ...(changes.loveavSettings.newValue?.workflow || {}) };
+    folderSettings = changes.loveavSettings.newValue || {};
     syncUi();
   });
 

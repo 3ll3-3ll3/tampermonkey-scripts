@@ -245,6 +245,11 @@
     window.addEventListener('resize', schedule);
     document.addEventListener('load', schedule, true);
     return {
+      selectWorks(works) {
+        selected.clear();
+        for (const work of works) selected.set(keyOf(work), { ...work });
+        setActive(true);
+      },
       refresh,
       setActive,
       setBusy(value) { busy = value; render(); },

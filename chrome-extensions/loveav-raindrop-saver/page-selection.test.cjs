@@ -38,7 +38,7 @@ const path = require('node:path');
           } },
         };
       });
-      for (const file of ['filter-core.js', 'loveav-core.js', 'page-selection.js', 'content.js']) await page.addScriptTag({ path: path.join(__dirname, file) });
+      for (const file of ['filter-core.js', 'loveav-core.js', 'page-selection.js', 'home-loader.js', 'content.js']) await page.addScriptTag({ path: path.join(__dirname, file) });
       await page.getByRole('button', { name: '♥ LoveAV 工具', exact: true }).click();
       await page.getByRole('button', { name: '选择部分收藏', exact: true }).click();
       const overlay = page.locator('#loveav-page-selection');
