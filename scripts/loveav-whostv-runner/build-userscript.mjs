@@ -10,8 +10,8 @@ const source = await readFile(sourcePath, 'utf8');
 const header = `// ==UserScript==
 // @name         LoveAV Whos.tv 最新脚本启动器
 // @namespace    wjl.local
-// @version      1.0.0
-// @description  从已授权目录扫描、校验并运行最新 LoveAV Whos.tv 抓取脚本。
+// @version      1.1.0
+// @description  一键运行最新 LoveAV Whos.tv 脚本，完整 JSON 自动保存到授权的项目 imports 目录。
 // @match        https://whos.tv/*
 // @match        https://*.whos.tv/*
 // @updateURL    https://raw.githubusercontent.com/3ll3-3ll3/tampermonkey-scripts/main/scripts/loveav-whostv-runner/loveav-whostv-runner.user.js

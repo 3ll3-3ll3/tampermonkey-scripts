@@ -2,12 +2,15 @@
   'use strict';
 
   const SCRIPT_NAME_RE = /^whostv_(?:incremental|pages_[0-9]+_[0-9]+)_[0-9]{8}-[0-9]{6}\.js$/i;
+  const OUTPUT_NAME_RE = /^whos_tv_solved_answers_[a-z0-9_-]+\.json$/i;
+  const OUTPUT_PATH_HINT = 'E:\\Desktop\\codex项目\\whostv-current\\.loveav\\imports';
   const REQUIRED_MARKERS = [
     "const runtimeKey = '__whosTvScrapeRuntime'",
     "pageUrl.searchParams.set('tab', 'solved')",
     "credentials: 'include'",
     "cache: 'no-store'",
     'runtimeScope.cancelWhosTvScrape = () =>',
+    '__loveavWhosTvWriteJson',
   ];
 
   function inspectScript(source, entryPath = '') {
@@ -26,8 +29,11 @@
       throw new Error(`脚本 CONFIG 不是有效 JSON：${error?.message || error}`);
     }
     if (!['incremental', 'pages'].includes(config.mode)) throw new Error(`不支持的脚本模式：${config.mode}`);
-    if (!/^whos_tv_solved_answers_[a-z0-9_-]+\.json$/i.test(String(config.outputFile || ''))) {
+    if (!OUTPUT_NAME_RE.test(String(config.outputFile || ''))) {
       throw new Error('输出 JSON 文件名不符合 Whos.tv 规则。');
+    }
+    if (config.outputMode !== 'project-imports-v1' || config.outputDirectoryHint !== OUTPUT_PATH_HINT) {
+      throw new Error('这是旧版下载脚本，请让 LoveAV 重新生成支持项目目录保存的最新脚本。');
     }
     if (!Number.isInteger(config.requestTimeoutMs) || config.requestTimeoutMs < 1000 || config.requestTimeoutMs > 120000) {
       throw new Error('请求超时参数超出安全范围。');
@@ -53,8 +59,68 @@
     return [...new Uint8Array(digest)].map((part) => part.toString(16).padStart(2, '0')).join('');
   }
 
+  function validateOutputDirectory(handle) {
+    if (!handle || handle.kind !== 'directory' || handle.name !== 'imports' || typeof handle.getFileHandle !== 'function') {
+      throw new Error(`请选择 imports 目录：${OUTPUT_PATH_HINT}`);
+    }
+    return handle;
+  }
+
+  async function writeJsonToDirectory(handle, options) {
+    validateOutputDirectory(handle);
+    const { fileName, content, outputDirectoryHint, checkCancelled = () => {}, onCommitStart = () => {} } = options;
+    if (!OUTPUT_NAME_RE.test(String(fileName || '')) || outputDirectoryHint !== OUTPUT_PATH_HINT || typeof content !== 'string') {
+      throw new Error('JSON 保存参数无效。');
+    }
+    const payload = JSON.parse(content);
+    if (!Array.isArray(payload.entries) || !payload.entries.length || payload.count !== payload.entries.length) {
+      throw new Error('JSON 不是完整的 Whos.tv 抓取结果，停止保存。');
+    }
+    if (await handle.queryPermission({ mode: 'readwrite' }) !== 'granted') {
+      throw new Error('JSON 保存目录权限已失效，请重新授权后运行。');
+    }
+    checkCancelled();
+    let actualName = fileName;
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      try {
+        await handle.getFileHandle(actualName);
+        actualName = fileName.replace(/\.json$/i, `_${Date.now()}_${crypto.randomUUID().replace(/-/g, '')}.json`);
+      } catch (error) {
+        if (error?.name !== 'NotFoundError') throw error;
+        break;
+      }
+      if (attempt === 19) throw new Error('无法分配新的 JSON 文件名，旧文件没有被覆盖。');
+    }
+    checkCancelled();
+    const file = await handle.getFileHandle(actualName, { create: true });
+    let writable;
+    let commitStarted = false;
+    try {
+      writable = await file.createWritable();
+      checkCancelled();
+      await writable.write(content);
+      checkCancelled();
+      onCommitStart();
+      commitStarted = true;
+      await writable.close();
+      const savedFile = await file.getFile();
+      if (await savedFile.text() !== content) throw new Error('保存后内容核验不一致。');
+      return { ok: true, saved: true, fileName: actualName, bytes: savedFile.size, directoryName: handle.name };
+    } catch (error) {
+      try { if (writable) await writable.abort(); } catch { /* 已关闭的流不能再取消。 */ }
+      let fileMayExist = commitStarted;
+      // 只清理本次新建、尚未提交的空文件，绝不删除既有结果。
+      if (!commitStarted) {
+        try { await handle.removeEntry(actualName); } catch { fileMayExist = true; }
+      }
+      const failure = new Error(`JSON 保存失败：${error?.message || error}${fileMayExist ? '；请检查 imports 中的实际文件，保存结果尚未确认。' : ''}`, { cause: error });
+      failure.fileMayExist = fileMayExist;
+      throw failure;
+    }
+  }
+
   if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { inspectScript, SCRIPT_NAME_RE };
+    module.exports = { inspectScript, SCRIPT_NAME_RE, OUTPUT_PATH_HINT, validateOutputDirectory, writeJsonToDirectory };
   }
   if (typeof document === 'undefined' || typeof window === 'undefined') return;
 
@@ -68,10 +134,11 @@
   const DB_NAME = 'loveav-whostv-runner-v1';
   const STORE_NAME = 'directory-handles';
   const DIRECTORY_KEY = 'generated-directory';
+  const OUTPUT_DIRECTORY_KEY = 'imports-directory';
   const PICKER_ID = 'loveav-whostv-generated';
   const PATH_HINT = 'E:\\Desktop\\codex项目\\whostv-current\\脚本归档\\generated';
   const MAX_DEPTH = 2;
-  const state = { handle: null, latest: null, busy: false };
+  const state = { handle: null, outputHandle: null, latest: null, busy: false, restoring: true };
 
   function openDb() {
     return new Promise((resolve, reject) => {
@@ -84,11 +151,11 @@
     });
   }
 
-  async function readRememberedHandle() {
+  async function readRememberedHandle(key = DIRECTORY_KEY) {
     const db = await openDb();
     try {
       return await new Promise((resolve, reject) => {
-        const request = db.transaction(STORE_NAME, 'readonly').objectStore(STORE_NAME).get(DIRECTORY_KEY);
+        const request = db.transaction(STORE_NAME, 'readonly').objectStore(STORE_NAME).get(key);
         request.onsuccess = () => resolve(request.result || null);
         request.onerror = () => reject(request.error || new Error('无法读取已保存目录。'));
       });
@@ -97,12 +164,12 @@
     }
   }
 
-  async function rememberHandle(handle) {
+  async function rememberHandle(handle, key = DIRECTORY_KEY) {
     const db = await openDb();
     try {
       await new Promise((resolve, reject) => {
         const transaction = db.transaction(STORE_NAME, 'readwrite');
-        transaction.objectStore(STORE_NAME).put(handle, DIRECTORY_KEY);
+        transaction.objectStore(STORE_NAME).put(handle, key);
         transaction.oncomplete = resolve;
         transaction.onerror = () => reject(transaction.error || new Error('无法保存目录授权。'));
         transaction.onabort = () => reject(transaction.error || new Error('保存目录授权已取消。'));
@@ -141,7 +208,7 @@
     <style>
       :host { all: initial; }
       #launcher { position: fixed; right: 16px; bottom: 16px; z-index: 2147483647; padding: 9px 13px; border: 1px solid #38bdf8; border-radius: 10px; color: #fff; background: #0369a1; box-shadow: 0 8px 28px rgba(0,0,0,.4); cursor: pointer; font: 600 13px/1.2 system-ui, "Segoe UI", sans-serif; }
-      #panel { position: fixed; right: 16px; bottom: 60px; z-index: 2147483647; width: min(440px, calc(100vw - 32px)); padding: 14px; border: 1px solid #475569; border-radius: 12px; color: #e5e7eb; background: rgba(15,23,42,.98); box-shadow: 0 16px 50px rgba(0,0,0,.5); font: 13px/1.45 system-ui, "Segoe UI", sans-serif; }
+      #panel { position: fixed; right: 16px; bottom: 60px; z-index: 2147483647; width: min(440px, calc(100vw - 32px)); max-height: calc(100vh - 100px); overflow: auto; padding: 14px; border: 1px solid #475569; border-radius: 12px; color: #e5e7eb; background: rgba(15,23,42,.98); box-shadow: 0 16px 50px rgba(0,0,0,.5); font: 13px/1.45 system-ui, "Segoe UI", sans-serif; }
       #panel[hidden] { display: none; }
       h2 { margin: 0 0 10px; font-size: 15px; color: #fff; }
       #details { padding: 9px; border-radius: 8px; background: #111827; overflow-wrap: anywhere; white-space: pre-wrap; }
@@ -154,21 +221,24 @@
       button.run { background: #16a34a; }
       button.cancel { background: #b91c1c; }
       button:disabled { cursor: default; opacity: .45; }
-      .hint { margin-top: 9px; color: #94a3b8; font-size: 12px; }
+      .hint { margin-top: 9px; color: #94a3b8; font-size: 12px; overflow-wrap: anywhere; }
+      #output-directory { margin-top: 8px; overflow-wrap: anywhere; }
     </style>
     <button id="launcher" type="button">运行 Whos.tv</button>
     <section id="panel" hidden>
       <h2>LoveAV Whos.tv 最新脚本</h2>
       <div id="details">尚未扫描。</div>
+      <div id="output-directory">JSON 保存目录尚未授权。</div>
       <div id="status">首次使用请选择 generated 目录。</div>
       <div class="actions">
         <button id="scan" type="button">扫描最新脚本</button>
         <button id="run" class="run" type="button" disabled>运行最新脚本</button>
         <button id="cancel" class="cancel" type="button">取消抓取</button>
-        <button id="change" class="secondary" type="button">更换目录</button>
+        <button id="change" class="secondary" type="button">更换脚本目录</button>
+        <button id="output-change" class="secondary" type="button">授权 / 更换 JSON 保存目录</button>
         <button id="close" class="secondary" type="button">收起</button>
       </div>
-      <div class="hint">默认目录：${PATH_HINT}<br>脚本由 LoveAV 生成；运行进度仍逐条显示在开发者工具 Console 中。</div>
+      <div class="hint">脚本目录：${PATH_HINT}<br>JSON 保存目录：${OUTPUT_PATH_HINT}<br>首次选择该 imports 目录；以后复用授权。进度逐条显示在 Console 中。</div>
     </section>
   `;
 
@@ -179,6 +249,8 @@
   const runButton = shadow.querySelector('#run');
   const cancelButton = shadow.querySelector('#cancel');
   const changeButton = shadow.querySelector('#change');
+  const outputChangeButton = shadow.querySelector('#output-change');
+  const outputDirectory = shadow.querySelector('#output-directory');
 
   function setStatus(message, kind = '') {
     status.textContent = message;
@@ -189,7 +261,8 @@
     state.busy = value;
     scanButton.disabled = value;
     changeButton.disabled = value;
-    runButton.disabled = value || !state.latest;
+    outputChangeButton.disabled = value;
+    runButton.disabled = value || state.restoring || !state.latest;
   }
 
   function show() { panel.hidden = false; }
@@ -214,7 +287,7 @@
         `文件：${latest.entryPath}`,
         `修改时间：${new Date(latest.file.lastModified).toLocaleString('zh-CN')}`,
         `模式：${range}`,
-        `输出：${config.outputFile}`,
+        `输出：imports/${config.outputFile}（重名时自动保留新副本）`,
         `SHA-256：${hash}`,
       ].join('\n');
       setStatus('已找到并校验最新脚本，可以运行。', 'done');
@@ -227,6 +300,7 @@
   }
 
   async function chooseDirectory() {
+    if (state.busy) return;
     if (!window.showDirectoryPicker) {
       setStatus('当前浏览器不支持目录授权，请使用最新版 Chrome。', 'error');
       return;
@@ -242,6 +316,7 @@
   }
 
   async function scan() {
+    if (state.busy || state.restoring) return;
     show();
     if (!state.handle) {
       await chooseDirectory();
@@ -250,7 +325,7 @@
     try {
       const permission = await state.handle.requestPermission({ mode: 'read' });
       if (permission !== 'granted') {
-        setStatus('目录权限未授予，请点击“更换目录”。', 'error');
+        setStatus('目录权限未授予，请点击“更换脚本目录”。', 'error');
         return;
       }
       await scanWithHandle(state.handle);
@@ -259,24 +334,61 @@
     }
   }
 
+  async function chooseOutputDirectory() {
+    if (!window.showDirectoryPicker) throw new Error('当前浏览器不支持目录保存，请使用 Chrome。');
+    const handle = await window.showDirectoryPicker({ id: 'loveav-whostv-imports', mode: 'readwrite' });
+    validateOutputDirectory(handle);
+    if (await handle.queryPermission({ mode: 'readwrite' }) !== 'granted') throw new Error('未取得 JSON 目录写入权限。');
+    await rememberHandle(handle, OUTPUT_DIRECTORY_KEY);
+    state.outputHandle = handle;
+    outputDirectory.textContent = `JSON 已授权：${handle.name}。请确认选择的是 ${OUTPUT_PATH_HINT}`;
+    return handle;
+  }
+
+  async function prepareOutputDirectory() {
+    if (!state.outputHandle) return chooseOutputDirectory();
+    const handle = validateOutputDirectory(state.outputHandle);
+    // 从用户点击直接申请权限，避免抓取结束后失去用户手势。
+    if (await handle.requestPermission({ mode: 'readwrite' }) !== 'granted') {
+      throw new Error('JSON 保存目录权限未授予，请点击“授权 / 更换 JSON 保存目录”。');
+    }
+    return handle;
+  }
+
   async function runLatest() {
-    if (!state.latest || state.busy) return;
+    if (!state.latest || state.busy || state.restoring) return;
     if (window.__whosTvScrapeRuntime?.active) {
       setStatus('已有抓取正在运行；可点击“取消抓取”。', 'error');
       return;
     }
     setBusy(true);
-    setStatus('抓取运行中；逐条进度请查看 Console，可随时点击“取消抓取”。');
+    setStatus('正在确认 JSON 保存目录权限……');
+    const previousWriter = window.__loveavWhosTvWriteJson;
+    let writerInstalled = false;
     try {
+      const outputHandle = await prepareOutputDirectory();
+      let savedResult = null;
+      window.__loveavWhosTvWriteJson = async (options) => {
+        if (savedResult) throw new Error('本轮 JSON 已保存，不重复写入。');
+        savedResult = await writeJsonToDirectory(outputHandle, options);
+        return savedResult;
+      };
+      writerInstalled = true;
+      setStatus('抓取运行中；完成后自动保存到 imports。逐条进度请查看 Console。');
       const safeName = state.latest.file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
       const execute = new Function(`return ${state.latest.source}\n//# sourceURL=${safeName}`);
       await Promise.resolve(execute());
-      setStatus(`运行完成，浏览器应已下载 ${state.latest.inspection.config.outputFile}。`, 'done');
+      if (!savedResult?.ok || !savedResult.saved) throw new Error('运行结束但没有确认 JSON 保存成功，请查看 Console。');
+      setStatus(`已保存并核验：imports/${savedResult.fileName}。现在可以让 LoveAV 整理最新 JSON。`, 'done');
     } catch (error) {
       console.error('[LoveAV Whos.tv Runner]', error);
-      const cancelled = /取消/.test(String(error?.message || error));
-      setStatus(cancelled ? '抓取已取消，没有下载部分 JSON。' : `运行失败：${error?.message || error}`, cancelled ? '' : 'error');
+      const cancelled = error?.name === 'AbortError' || /取消/.test(String(error?.message || error));
+      setStatus(error?.fileMayExist ? `保存结果需要检查：${error.message}` : cancelled ? '本轮已取消，未保存 JSON。' : `运行失败：${error?.message || error}`, cancelled ? '' : 'error');
     } finally {
+      if (writerInstalled) {
+        if (previousWriter === undefined) delete window.__loveavWhosTvWriteJson;
+        else window.__loveavWhosTvWriteJson = previousWriter;
+      }
       setBusy(false);
     }
   }
@@ -287,8 +399,8 @@
       setStatus('当前没有正在运行的 Whos.tv 抓取。');
       return;
     }
-    cancel();
-    setStatus('已请求安全取消；脚本会停止且不下载部分 JSON。');
+    if (cancel()) setStatus('已请求安全取消；脚本会停止且不保存部分 JSON。');
+    else setStatus('正在结束或提交文件，请等待最终保存结果。');
   }
 
   function ensureAttached() {
@@ -303,6 +415,16 @@
   runButton.addEventListener('click', runLatest);
   cancelButton.addEventListener('click', cancelRun);
   changeButton.addEventListener('click', chooseDirectory);
+  outputChangeButton.addEventListener('click', async () => {
+    if (state.busy || state.restoring) return;
+    setBusy(true);
+    try {
+      await chooseOutputDirectory();
+      setStatus('JSON 目录已授权，运行时将自动保存到此目录。', 'done');
+    } catch (error) {
+      setStatus(error?.name === 'AbortError' ? '目录选择已取消，保留原设置。' : `目录授权失败：${error?.message || error}`, 'error');
+    } finally { setBusy(false); }
+  });
   shadow.querySelector('#close').addEventListener('click', hide);
 
   const observer = new MutationObserver(ensureAttached);
@@ -316,6 +438,7 @@
     cancel: cancelRun,
     status: () => ({
       directory: state.handle?.name || null,
+      outputDirectory: state.outputHandle?.name || null,
       latest: state.latest?.entryPath || null,
       mode: state.latest?.inspection?.config?.mode || null,
       output: state.latest?.inspection?.config?.outputFile || null,
@@ -327,10 +450,13 @@
     GM_registerMenuCommand('打开 LoveAV Whos.tv 最新脚本启动器', show);
   }
 
-  readRememberedHandle()
-    .then((handle) => {
+  Promise.all([readRememberedHandle(), readRememberedHandle(OUTPUT_DIRECTORY_KEY)])
+    .then(([handle, outputHandle]) => {
       state.handle = handle;
+      state.outputHandle = outputHandle && validateOutputDirectory(outputHandle);
+      outputDirectory.textContent = outputHandle ? `已记住 JSON 目录：${outputHandle.name}（运行前检查写入权限）` : 'JSON 保存目录尚未授权；首次运行会提示选择 imports。';
       setStatus(handle ? `已记住目录：${handle.name}` : '首次使用请选择 generated 目录。');
     })
-    .catch((error) => setStatus(`读取目录配置失败：${error?.message || error}`, 'error'));
+    .catch((error) => setStatus(`读取目录配置失败：${error?.message || error}`, 'error'))
+    .finally(() => { state.restoring = false; setBusy(false); });
 })();
