@@ -1,6 +1,13 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { inspectScript, SCRIPT_NAME_RE, OUTPUT_PATH_HINT, validateOutputDirectory, writeJsonToDirectory } = require('./loveav-whostv-runner.js');
+const {
+  inspectScript,
+  SCRIPT_NAME_RE,
+  OUTPUT_PATH_HINT,
+  validateOutputDirectory,
+  writeJsonToDirectory,
+  executeScriptSource,
+} = require('./loveav-whostv-runner.js');
 
 function validScript(config) {
   config = { outputMode: 'project-imports-v1', outputDirectoryHint: OUTPUT_PATH_HINT, ...config };
@@ -59,6 +66,23 @@ test('拒绝仍使用普通下载的旧脚本', () => {
     outputFile: 'whos_tv_solved_answers_pages_1-1.json', delayMs: 500,
     requestTimeoutMs: 30000, outputMode: 'download' });
   assert.throws(() => inspectScript(source, 'whostv_pages_1_1_20260916-120000.js'), /旧版下载脚本/);
+});
+
+test('执行脚本显式共享 Tampermonkey 沙箱 window 上的保存回执桥接', async () => {
+  const calls = [];
+  const runtimeScope = {
+    __loveavWhosTvWriteJson: async (options) => {
+      calls.push(options);
+      return { ok: true, saved: true, fileName: options.fileName };
+    },
+  };
+  const source = `(async () => {
+    const runtimeScope = typeof window === 'undefined' ? globalThis : window;
+    return runtimeScope.__loveavWhosTvWriteJson({ fileName: 'bridge.json' });
+  })();`;
+  const result = await executeScriptSource(source, runtimeScope, {}, 'bridge test.js');
+  assert.deepEqual(result, { ok: true, saved: true, fileName: 'bridge.json' });
+  assert.deepEqual(calls, [{ fileName: 'bridge.json' }]);
 });
 
 function fixtureDirectory(options = {}) {

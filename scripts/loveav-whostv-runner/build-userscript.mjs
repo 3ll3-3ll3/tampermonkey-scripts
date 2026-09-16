@@ -10,7 +10,7 @@ const source = await readFile(sourcePath, 'utf8');
 const header = `// ==UserScript==
 // @name         LoveAV Whos.tv 最新脚本启动器
 // @namespace    wjl.local
-// @version      1.1.0
+// @version      1.1.1
 // @description  一键运行最新 LoveAV Whos.tv 脚本，完整 JSON 自动保存到授权的项目 imports 目录。
 // @match        https://whos.tv/*
 // @match        https://*.whos.tv/*

@@ -119,8 +119,23 @@
     }
   }
 
+  function executeScriptSource(source, runtimeScope, documentScope, sourceName = 'whostv-generated.js') {
+    const safeName = String(sourceName).replace(/[^a-zA-Z0-9._-]/g, '_');
+    // Tampermonkey 的 new Function 默认可能落入页面主世界，读取不到沙箱 window 上的保存器。
+    // 显式传入 window/document，让生成脚本与启动器共享同一个保存回执桥接对象。
+    const execute = new Function('window', 'document', `return ${source}\n//# sourceURL=${safeName}`);
+    return execute(runtimeScope, documentScope);
+  }
+
   if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { inspectScript, SCRIPT_NAME_RE, OUTPUT_PATH_HINT, validateOutputDirectory, writeJsonToDirectory };
+    module.exports = {
+      inspectScript,
+      SCRIPT_NAME_RE,
+      OUTPUT_PATH_HINT,
+      validateOutputDirectory,
+      writeJsonToDirectory,
+      executeScriptSource,
+    };
   }
   if (typeof document === 'undefined' || typeof window === 'undefined') return;
 
@@ -375,9 +390,7 @@
       };
       writerInstalled = true;
       setStatus('抓取运行中；完成后自动保存到 imports。逐条进度请查看 Console。');
-      const safeName = state.latest.file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-      const execute = new Function(`return ${state.latest.source}\n//# sourceURL=${safeName}`);
-      await Promise.resolve(execute());
+      await Promise.resolve(executeScriptSource(state.latest.source, window, document, state.latest.file.name));
       if (!savedResult?.ok || !savedResult.saved) throw new Error('运行结束但没有确认 JSON 保存成功，请查看 Console。');
       setStatus(`已保存并核验：imports/${savedResult.fileName}。现在可以让 LoveAV 整理最新 JSON。`, 'done');
     } catch (error) {
