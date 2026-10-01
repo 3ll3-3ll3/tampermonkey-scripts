@@ -67,7 +67,7 @@ const path = require('node:path');
         document.querySelector('h1').remove();
         document.body.prepend(section);
       }, { normal, url: detailUrl });
-      await page.waitForFunction(() => document.querySelector('#loveav-raindrop-saver-host').shadowRoot.querySelector('.choose').hidden);
+      await page.waitForFunction(() => document.querySelector('#loveav-raindrop-saver-host').shadowRoot.querySelector('.action').textContent.includes('ABC-123'));
       await host.locator('.action').click();
       await page.waitForFunction(() => saved.length === 2);
       assert.deepEqual(await page.evaluate(() => LoveAVCore.classifyWork(saved[1][0], rules).tags), ['测试女优', '剧情']);

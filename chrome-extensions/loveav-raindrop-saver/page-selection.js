@@ -59,7 +59,7 @@
       host.id = 'loveav-page-selection';
       host.style.cssText = 'all:initial!important;position:fixed!important;inset:0!important;width:100%!important;height:100%!important;margin:0!important;padding:0!important;border:0!important;background:transparent!important;overflow:visible!important;pointer-events:none!important;z-index:2147483647!important;';
       // The browser top layer keeps site navigation from intercepting toolbar clicks.
-      if (typeof host.showPopover === 'function') host.setAttribute('popover', 'manual');
+      if (active && typeof host.showPopover === 'function') host.setAttribute('popover', 'manual');
       shadow = host.attachShadow({ mode: 'open' });
       shadow.innerHTML = `
         <style>
@@ -159,8 +159,9 @@
     }
 
     function render() {
-      if (!active) return;
       ensureHost();
+      toolbar.hidden = !active;
+      layer.replaceChildren();
       const currentKeys = new Set(cards.map((item) => keyOf(item.work)));
       const missing = [...selected.keys()].filter((key) => !currentKeys.has(key)).length;
       count.textContent = `已选 ${selected.size} / 本页 ${currentKeys.size} 个作品${missing ? `（含已移出页面 ${missing} 个）` : ''}`;
@@ -168,9 +169,10 @@
       for (const control of toolbar.querySelectorAll('button,select,textarea')) control.disabled = busy;
       toolbar.querySelector('.close').disabled = false;
       toolbar.querySelector('.save').disabled = busy || !selected.size;
-      placeToolbar();
+      if (active) placeToolbar();
+      if (busy) return;
       // Only create overlays for cards visible in the viewport; large loaded lists remain cheap to display.
-      layer.replaceChildren();
+      const shownGroups = new Set();
       for (const item of cards) {
         const rect = visibleRect(item.card);
         if (!rect) continue;
@@ -178,6 +180,28 @@
         const box = document.createElement('div');
         box.className = `card${selected.has(key) ? ' selected' : ''}`;
         box.style.cssText = `left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;height:${rect.height}px`;
+        if (!active) {
+          const single = document.createElement('button');
+          single.className = 'pick quick-card';
+          single.type = 'button';
+          single.textContent = `♥ 收藏 ${item.work.code}`;
+          single.addEventListener('click', () => { if (!busy) save([{ ...item.work }]); });
+          box.append(single);
+          if (!shownGroups.has(item.groupId)) {
+            shownGroups.add(item.groupId);
+            const works = [...new Map(cards.filter(card => card.groupId === item.groupId).map(card => [keyOf(card.work), card.work])).values()];
+            const batch = document.createElement('button');
+            batch.className = 'pick quick-group';
+            batch.type = 'button';
+            batch.style.cssText = 'top:auto;bottom:5px;max-width:calc(100% - 10px)';
+            batch.textContent = `♥ 收藏本板块 ${works.length} 项`;
+            batch.title = '收藏此板块中已加载的所有作品（含屏幕外作品），按 URL 去重';
+            batch.addEventListener('click', () => { if (!busy) save(works.map(work => ({ ...work }))); });
+            box.append(batch);
+          }
+          layer.append(box);
+          continue;
+        }
         const label = document.createElement('label');
         label.className = 'pick';
         const checkbox = document.createElement('input');
@@ -201,7 +225,6 @@
     function refresh() {
       const nextRoute = location.pathname + location.search;
       if (route !== nextRoute) { route = nextRoute; selected.clear(); }
-      if (!active) return;
       ensureHost();
       const groupNodes = new Map();
       const seenCards = new Set();
@@ -229,16 +252,17 @@
 
     function setActive(value) {
       active = value;
-      if (active) { ensureHost(); host.style.setProperty('display', 'block', 'important'); raiseHost(); refresh(); }
+      if (active) { ensureHost(); if (typeof host.showPopover === 'function') host.setAttribute('popover', 'manual'); host.style.setProperty('display', 'block', 'important'); raiseHost(); refresh(); }
       else if (host) {
         if (host.hasAttribute('popover') && host.matches(':popover-open')) host.hidePopover();
-        host.style.setProperty('display', 'none', 'important');
+        host.removeAttribute('popover');
+        render();
       }
       onChange?.(selected.size);
     }
 
     const schedule = () => {
-      if (!active || frame) return;
+      if (frame) return;
       frame = requestAnimationFrame(() => { frame = 0; render(); });
     };
     window.addEventListener('scroll', schedule, true);
