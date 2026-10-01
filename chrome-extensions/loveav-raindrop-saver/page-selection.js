@@ -72,6 +72,8 @@
           .card{position:fixed;border-radius:8px;pointer-events:none;border:2px solid transparent}.card.selected{border-color:#818cf8;box-shadow:inset 0 0 0 3px #6366f140;background:#6366f11a}
           .pick{position:absolute;left:5px;top:5px;display:flex;align-items:center;gap:5px;padding:6px 8px;border:1px solid #94a3b8;border-radius:7px;background:#0f172af0;color:white;font:700 12px/1.3 system-ui;pointer-events:auto;cursor:pointer;box-shadow:0 2px 8px #0006}
           input{width:18px;height:18px;margin:0;accent-color:#6366f1}
+          .quick-card{width:28px;height:28px;min-width:28px;padding:0;justify-content:center;border-radius:50%;background:#6554d9;color:#fff;border:1px solid #c4b5fd;font-size:17px;line-height:1;box-shadow:0 2px 6px #0009}
+          .quick-card:hover{background:#4734bc}.quick-card:focus-visible{outline:2px solid #fff;outline-offset:2px}
         </style>
         <div class="layer"></div>
         <section class="toolbar" aria-label="选择作品收藏">
@@ -172,11 +174,12 @@
       if (active) placeToolbar();
       if (busy) return;
       // Only create overlays for cards visible in the viewport; large loaded lists remain cheap to display.
-      const shownGroups = new Set();
+      const shownQuickWorks = new Set();
       for (const item of cards) {
         const rect = visibleRect(item.card);
         if (!rect) continue;
         const key = keyOf(item.work);
+        if (!active && shownQuickWorks.has(key)) continue;
         const box = document.createElement('div');
         box.className = `card${selected.has(key) ? ' selected' : ''}`;
         box.style.cssText = `left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;height:${rect.height}px`;
@@ -184,21 +187,12 @@
           const single = document.createElement('button');
           single.className = 'pick quick-card';
           single.type = 'button';
-          single.textContent = `♥ 收藏 ${item.work.code}`;
+          shownQuickWorks.add(key);
+          single.textContent = '♥';
+          single.title = `收藏 ${item.work.code} 到 Raindrop`;
+          single.setAttribute('aria-label', `收藏 ${item.work.code}`);
           single.addEventListener('click', () => { if (!busy) save([{ ...item.work }]); });
           box.append(single);
-          if (!shownGroups.has(item.groupId)) {
-            shownGroups.add(item.groupId);
-            const works = [...new Map(cards.filter(card => card.groupId === item.groupId).map(card => [keyOf(card.work), card.work])).values()];
-            const batch = document.createElement('button');
-            batch.className = 'pick quick-group';
-            batch.type = 'button';
-            batch.style.cssText = 'top:auto;bottom:5px;max-width:calc(100% - 10px)';
-            batch.textContent = `♥ 收藏本板块 ${works.length} 项`;
-            batch.title = '收藏此板块中已加载的所有作品（含屏幕外作品），按 URL 去重';
-            batch.addEventListener('click', () => { if (!busy) save(works.map(work => ({ ...work }))); });
-            box.append(batch);
-          }
           layer.append(box);
           continue;
         }

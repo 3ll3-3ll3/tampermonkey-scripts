@@ -411,9 +411,8 @@
         *{box-sizing:border-box}button{font:inherit}.launcher,.panel{pointer-events:auto}.launcher{position:fixed;left:18px;bottom:18px;z-index:2147483647;border:1px solid #8b7cf6;border-radius:999px;padding:11px 16px;background:#5b4fcf;color:#fff;font:700 14px/1.2 system-ui,"Microsoft YaHei",sans-serif;box-shadow:0 10px 30px #0006;cursor:pointer}.launcher[hidden],.panel[hidden]{display:none!important}.panel{position:fixed;left:18px;bottom:18px;z-index:2147483647;width:min(500px,calc(100vw - 36px));max-height:min(720px,calc(100vh - 36px));overflow:hidden;border:1px solid #475569;border-radius:15px;background:#0f172af2;color:#e5e7eb;box-shadow:0 18px 55px #0009;font:13px/1.45 system-ui,"Microsoft YaHei",sans-serif}.head{display:flex;align-items:center;justify-content:space-between;padding:13px 14px;border-bottom:1px solid #334155}.title{font-size:16px;font-weight:800}.sub{color:#94a3b8;font-size:12px}.close{border:0;background:transparent;color:#cbd5e1;font-size:22px;cursor:pointer}.body{padding:13px;overflow:auto;max-height:calc(min(720px,100vh - 36px) - 54px)}.phase{margin-bottom:10px;padding:9px 10px;border-radius:8px;background:#1e293b;color:#dbeafe}.phase[data-kind="success"]{background:#064e3b;color:#d1fae5}.phase[data-kind="warn"]{background:#713f12;color:#fef3c7}.phase[data-kind="error"]{background:#7f1d1d;color:#fee2e2}.actions{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}.primary,.secondary{border:0;border-radius:8px;padding:9px 12px;color:#fff;cursor:pointer}.primary{flex:1 1 220px;background:#4f46e5;font-weight:700}.secondary{background:#475569}.secondary.alternate{flex:1 1 170px;background:#0369a1;font-weight:700}.stop{background:#b91c1c}.primary:disabled,.secondary:disabled{opacity:.45;cursor:not-allowed}.barrow{display:flex;align-items:center;gap:9px;margin:8px 0}.barrow progress{width:100%;height:10px;accent-color:#7c6df2}.progress-text{min-width:50px;text-align:right;color:#cbd5e1}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin:10px 0}.stat{padding:7px;border:1px solid #334155;border-radius:8px;background:#172033;text-align:center}.stat b{display:block;font-size:16px;color:#fff}.stat span{color:#94a3b8;font-size:11px}.logs{height:230px;overflow:auto;border:1px solid #334155;border-radius:8px;background:#080f1e;padding:8px;font:12px/1.45 Consolas,"Microsoft YaHei",monospace}.log{padding:3px 0;border-bottom:1px solid #1e293b;color:#cbd5e1}.log.success{color:#86efac}.log.warn{color:#fde68a}.log.error{color:#fca5a5}.ready{margin-top:8px;color:#94a3b8;font-size:12px}
       </style>
       <style>.load-row{padding:10px;margin:8px 0;border:1px solid #475569;border-radius:9px;background:#172033}.load-row label{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:7px 0}.load-row input,.load-row select{max-width:65%;padding:6px;border:1px solid #64748b;border-radius:6px;background:#0f172a;color:#e2e8f0}.load-destination,.load-status,.load-note{font-size:12px;color:#a5b4fc}.load-conflict{color:#fbbf24}summary{cursor:pointer;padding:8px 0}.load-row[hidden],[hidden].load-empty,[hidden].load-conflict{display:none!important}</style>
-      <style>.quick-save{bottom:72px;max-width:calc(100vw - 36px);white-space:normal}.quick-batch{bottom:126px;max-width:calc(100vw - 36px)}.quick-save:disabled,.quick-batch:disabled{opacity:.65;cursor:wait}</style>
+      <style>.quick-save{bottom:72px;max-width:calc(100vw - 36px);white-space:normal}.quick-save:disabled{opacity:.65;cursor:wait}</style>
       <button class="launcher quick-save" type="button" hidden></button>
-      <button class="launcher quick-batch" type="button" hidden></button>
       <button class="launcher tools-launcher" type="button" title="打开 LoveAV 网页工作流">♥ LoveAV 工具</button>
       <section class="panel" hidden>
         <div class="head"><div><div class="title">LoveAV 网页工作流</div><div class="sub"></div></div><button class="close" type="button" title="收起">×</button></div>
@@ -436,7 +435,7 @@
     batchAction.type = 'button';
     find('.actions').append(batchAction);
     ui = {
-      quickBatch: find('.quick-batch'), batchList: batchAction,
+      batchList: batchAction,
       host, shadow, launcher: find('.tools-launcher'), quickSave: find('.quick-save'), panel: find('.panel'), action: find('.action'), alternate: find('.alternate'), choose: find('.choose'), refresh: find('.refresh'),
       stop: find('.stop'), close: find('.close'), phase: find('.phase'), progress: find('progress'),
       progressText: find('.progress-text'), logs: find('.logs'), sub: find('.sub'), stats: {},
@@ -444,7 +443,6 @@
     for (const element of shadow.querySelectorAll('[data-stat]')) ui.stats[element.dataset.stat] = element;
     ui.launcher.addEventListener('click', openPanel);
     ui.quickSave.addEventListener('click', saveDetailOnly);
-    ui.quickBatch.addEventListener('click', () => saveCurrent(listedWorks()));
     ui.batchList.addEventListener('click', () => saveCurrent(listedWorks()));
     ui.close.addEventListener('click', closePanel);
     ui.action.addEventListener('click', () => (workflow.pagePrimaryAction === 'filter' ? filterCurrentPage() : saveCurrent()));
@@ -470,9 +468,6 @@
     ui.quickSave.textContent = detail ? `♥ 一键收藏当前作品 · ${detail.code}` : '';
     ui.quickSave.title = '仅收藏当前作品到 Raindrop；沿用分类、黑名单和查重规则';
     const batchText = `${detail ? '一键收藏本页推荐' : '一键收藏本页作品'} · ${listCount}`;
-    ui.quickBatch.hidden = !listCount || !ui.panel.hidden;
-    ui.quickBatch.textContent = batchText;
-    ui.quickBatch.disabled = saving || loader.active;
     ui.batchList.hidden = !detail || !listCount;
     ui.batchList.textContent = batchText;
     ui.batchList.disabled = saving || loader.active;
