@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bad.news 批量点赞工具
 // @namespace    https://github.com/3ll3-3ll3/tampermonkey-scripts
-// @version      1.0.0
+// @version      1.0.1
 // @description  手动批量点赞当前正文或右侧排行榜，跳过已点赞项，支持停止与进度显示。
 // @match        https://bad.news/*
 // @match        https://www.bad.news/*
@@ -46,10 +46,12 @@
   const isRank = el => Boolean(el.closest('.side, [id^="top-content-"]'));
   const up = el => el.querySelector('i.fa-thumbs-o-up[onclick],i.fa-thumbs-up[onclick]');
   const visible = el => el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
+  // Ranking vote icons may only appear on hover; the visible row is the scope.
+  const inScope = el => visible(el) || (isRank(el) && visible(el.closest('.relatedlist') || el));
   function state(el) {
     const button = up(el);
     if (!button) return 'unknown';
-    if (/login-required/i.test(button.className)) return 'login';
+    // login-required is a handler hook, not proof of the current account state.
     if (el.classList.contains('likes') || button.classList.contains('fa-thumbs-up')) return 'liked';
     if (button.classList.contains('fa-thumbs-o-up') && !el.classList.contains('dislikes') && !el.querySelector('.fa-thumbs-down')) return 'unliked';
     return 'unknown';
@@ -63,7 +65,7 @@
     const mode = $('.scope').value, found = new Map();
     for (const el of containers()) {
       if (mode === 'main' && isRank(el) || mode === 'rank' && !isRank(el)) continue;
-      if (!visible(el)) continue;
+      if (!inScope(el)) continue;
       if (!found.has(el.dataset.tid)) found.set(el.dataset.tid, []);
       found.get(el.dataset.tid).push(el);
     }
@@ -74,7 +76,6 @@
     const states = nodes.map(state);
     // Any duplicate showing a positive state prevents toggling the work off.
     if (states.includes('liked')) return 'liked';
-    if (states.includes('login')) return 'login';
     return states.includes('unliked') ? 'unliked' : 'unknown';
   }
   function log(message) {
@@ -88,7 +89,11 @@
     const items = discover();
     const liked = items.filter(item => currentState(item.id) === 'liked').length;
     const ready = items.filter(item => currentState(item.id) === 'unliked' && !attempted.has(item.id)).length;
-    $('.count').textContent = `识别 ${items.length} 项 · 已点赞 ${liked} · 可处理 ${ready}`;
+    const unknown = items.filter(item => currentState(item.id) === 'unknown').length;
+    const pending = items.filter(item => currentState(item.id) !== 'liked' && attempted.has(item.id)).length;
+    const reason = !items.length ? '；没有找到当前显示的条目，请等待排行榜加载后刷新识别'
+      : !ready ? `；${unknown ? '有未知状态，不能安全点赞' : pending ? '已尝试项需要刷新页面核对' : '当前范围已全部点赞'}` : '';
+    $('.count').textContent = `识别 ${items.length} 项 · 已点赞 ${liked} · 可处理 ${ready} · 未知 ${unknown}${reason}`;
     $('.start').disabled = running || !ready;
   }
   function check(page) {
@@ -125,7 +130,7 @@
         } else {
           if (known !== 'unliked') throw Error(`${id}：${known === 'login' ? '需要登录' : '状态未知'}，已停止，未点击`);
           const item = discover().find(entry => entry.id === id);
-          const button = item?.nodes.map(up).find(el => el && visible(el));
+          const button = item?.nodes.filter(el => state(el) === 'unliked' && inScope(el)).map(up).find(Boolean);
           if (!button || button.closest('[aria-disabled="true"]')) throw Error(`${id}：按钮不可用，已停止`);
           attempted.add(id);
           $('.status').textContent = `正在点赞 ${completed + 1}/${queue.length}，作品 ${id}`;
@@ -158,5 +163,11 @@
   $('.refresh').addEventListener('click', refresh);
   $('.start').addEventListener('click', run);
   $('.stop').addEventListener('click', () => { stopped = true; });
+  let refreshTimer;
+  new MutationObserver(() => {
+    if (running || $('.panel').hidden) return;
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(refresh, 250);
+  }).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'hidden'] });
   if (typeof GM_registerMenuCommand === 'function') GM_registerMenuCommand('打开批量点赞工具', open);
 })();

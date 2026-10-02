@@ -29,6 +29,21 @@ const path = require('node:path');
     await page.waitForFunction(() => document.querySelector('#badnews-batch-like').shadowRoot.querySelector('.status').textContent.startsWith('完成：'));
     assert.deepEqual(await page.evaluate(() => clicks), ['101', '103']);
     assert.deepEqual(await page.evaluate(() => downs), []);
+    // Ranking icons can be hover-only and keep login-required handler classes
+    // even when the page no longer displays a login link.
+    await setup(`<style>.relatedlist .midcol{visibility:hidden}</style><aside class="side" id="top-content-news"><div class="relatedlist">${vote('151').replace('fa fa-thumbs-o-up', 'fa login-requiredi fa-thumbs-o-up')}<a href="/t/151">排行条目</a></div></aside>`);
+    await panel.locator('.scope').selectOption('rank');
+    assert.equal(await panel.locator('.start').isEnabled(), true);
+    await panel.locator('.start').click();
+    await page.waitForFunction(() => document.querySelector('#badnews-batch-like').shadowRoot.querySelector('.status').textContent.startsWith('完成：'));
+    assert.deepEqual(await page.evaluate(() => clicks), ['151']);
+    // An asynchronously populated ranking updates an already-open panel.
+    await setup('<aside class="side" id="top-content-news"></aside>');
+    await panel.locator('.scope').selectOption('rank');
+    assert.equal(await panel.locator('.start').isEnabled(), false);
+    await page.evaluate(html => document.querySelector('.side').innerHTML = html, vote('152'));
+    await page.waitForFunction(() => !document.querySelector('#badnews-batch-like').shadowRoot.querySelector('.start').disabled);
+    assert.match(await panel.locator('.count').textContent(), /可处理 1/);
     // Repeated icons and cloned work containers must only cause one click.
     await setup(vote('201') + vote('201') + vote('202', true));
     await panel.locator('.scope').selectOption('all');
