@@ -21,6 +21,11 @@ const path = require('node:path');
     }
     const panel = page.locator('#badnews-batch-like');
     await setup(vote('101') + vote('102', true) + `<aside class="side" id="top-content-news">${vote('101')}${vote('103')}</aside>`);
+    await panel.locator('.delay').fill('249');
+    await panel.locator('.start').click();
+    assert.match(await panel.locator('.status').textContent(), /250–60000/);
+    assert.deepEqual(await page.evaluate(() => clicks), []);
+    await panel.locator('.delay').fill('250');
     await panel.locator('.start').click();
     await page.waitForFunction(() => document.querySelector('#badnews-batch-like').shadowRoot.querySelector('.status').textContent.startsWith('完成：'));
     assert.deepEqual(await page.evaluate(() => clicks), ['101']);
