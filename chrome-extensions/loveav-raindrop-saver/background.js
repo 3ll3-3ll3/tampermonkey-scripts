@@ -405,9 +405,55 @@ async function openFilterWorkbench(text = '', sourceLabel = '') {
   return { ok: true, tabId: tab?.id || 0 };
 }
 
+const layoutWindowJobs = new Map();
+function openLayoutWindow(tabId) {
+  if (layoutWindowJobs.has(tabId)) return layoutWindowJobs.get(tabId);
+  const job = (async () => {
+    const key = `loveavLayoutWindow:${tabId}`;
+    const stored = await chrome.storage.session.get(key);
+    if (stored[key]) {
+      try {
+        const win = await chrome.windows.get(stored[key]);
+        if (win.type === 'popup') { await chrome.windows.update(win.id, { focused: true }); return; }
+      } catch { /* Closed windows are recreated; no user browser tabs are removed. */ }
+    }
+    const win = await chrome.windows.create({ url: chrome.runtime.getURL(`layout-panel.html?tab=${tabId}&view=window`), type: 'popup', width: 500, height: 780 });
+    await chrome.storage.session.set({ [key]: win.id });
+  })().finally(() => layoutWindowJobs.delete(tabId));
+  layoutWindowJobs.set(tabId, job);
+  return job;
+}
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   const run = async () => {
     switch (message?.type) {
+      case 'loveav-layout-register':
+        if (!_sender.tab?.id) throw new Error('缺少来源网页');
+        await chrome.sidePanel.setOptions({ tabId: _sender.tab.id, path: `layout-panel.html?tab=${_sender.tab.id}&view=sidebar`, enabled: true });
+        return { ok: true };
+      case 'loveav-layout-open': {
+        const ownView = _sender.url?.startsWith(chrome.runtime.getURL('layout-panel.html'));
+        const tabId = ownView ? Number(message.tabId) : _sender.tab?.id;
+        if (!Number.isInteger(tabId)) throw new Error('请从作品网页打开工具');
+        if (message.mode === 'sidebar') {
+          // Must be the first async API call in response to the user's click.
+          await chrome.sidePanel.open({ tabId });
+        } else if (message.mode === 'window') {
+          await openLayoutWindow(tabId);
+        }
+        return { ok: true };
+      }
+      case 'loveav-layout-close-side': {
+        const ownView = _sender.url?.startsWith(chrome.runtime.getURL('layout-panel.html'));
+        const tabId = ownView ? Number(message.tabId) : _sender.tab?.id;
+        if (Number.isInteger(tabId) && chrome.sidePanel.close) await chrome.sidePanel.close({ tabId }).catch(() => {});
+        return { ok: true };
+      }
+      case 'loveav-layout-forward': {
+        if (!_sender.url?.startsWith(chrome.runtime.getURL('layout-panel.html'))) throw new Error('非法面板来源');
+        if (!['loveav-layout-snapshot', 'loveav-layout-act', 'loveav-layout-set'].includes(message.command?.type)) throw new Error('非法面板操作');
+        return chrome.tabs.sendMessage(Number(message.tabId), message.command);
+      }
       case 'loveav-save-work': return saveWork(message.work);
       case 'loveav-save-works': return saveWorks(message.works);
       case 'loveav-oauth-authorize': return { ok: true, ...(await authorizeRaindrop(message.clientId, message.clientSecret)) };

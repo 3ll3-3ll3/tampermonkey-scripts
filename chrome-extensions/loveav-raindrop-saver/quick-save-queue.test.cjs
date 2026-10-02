@@ -35,7 +35,7 @@ const files = ['filter-core.js', 'loveav-core.js', 'page-metadata.js', 'missav-r
           sendMessage: async message => {
             if (message.type === 'loveav-save-works') {
               saved.push(message);
-              await new Promise(resolve => setTimeout(resolve, 250));
+              await new Promise(resolve => setTimeout(resolve, 1500));
               return { ok: true, total: message.works.length, created: message.works.length, existing: 0, excluded: 0, failed: 0,
                 details: message.works.map(work => ({ code: work.code, status: 'created', folder: 'MissAV', ruleFolder: '其他' })) };
             }

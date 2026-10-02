@@ -9,6 +9,7 @@
   let saving = false;
   let cancelled = false;
   let ui = null;
+  let layout = null;
   let pendingWorks = new Map();
   let activeSaveKeys = new Set();
   let saveSessionStats = { total: 0, parsed: 0, created: 0, existing: 0, excluded: 0, failed: 0 };
@@ -225,6 +226,7 @@
     row.className = `log ${kind}`;
     row.textContent = `${new Date().toLocaleTimeString('zh-CN', { hour12: false })}  ${message}`;
     ui.logs.append(row);
+    if (kind === 'error' && ui.logs.parentElement.tagName === 'DETAILS') ui.logs.parentElement.open = true;
     while (ui.logs.children.length > 250) ui.logs.firstElementChild.remove();
     ui.logs.scrollTop = ui.logs.scrollHeight;
   }
@@ -265,7 +267,7 @@
   }
 
   function placePanel() {
-    if (!ui?.panel || !panelPosition) return;
+    if (!ui?.panel || !panelPosition || (layout && layout.mode !== 'floating')) return;
     const rect = ui.panel.getBoundingClientRect();
     panelPosition.x = Math.min(Math.max(8, panelPosition.x), Math.max(8, innerWidth - rect.width - 8));
     panelPosition.y = Math.min(Math.max(8, panelPosition.y), Math.max(8, innerHeight - rect.height - 8));
@@ -280,11 +282,13 @@
     ui.panel.classList.toggle('compact', panelCompact);
     ui.minimize.textContent = panelCompact ? '展开' : '收起';
     ui.minimize.setAttribute('aria-expanded', String(!panelCompact));
+    layout?.refresh();
     requestAnimationFrame(placePanel);
   }
 
-  function openPanel(compact = false) {
+  function openPanel(compact = false, userGesture = false) {
     ensureUi();
+    if (layout) { layout.show(compact, userGesture); syncUi(); return; }
     const wasHidden = ui.panel.hidden;
     ui.panel.hidden = false;
     ui.launcher.hidden = true;
@@ -296,6 +300,7 @@
 
   function closePanel() {
     if (!ui) return;
+    if (layout) { layout.hide(); syncUi(); return; }
     ui.panel.hidden = true;
     ui.launcher.hidden = false;
     syncUi();
@@ -540,7 +545,7 @@
       progressText: find('.progress-text'), logs: find('.logs'), sub: find('.sub'), stats: {},
     };
     for (const element of shadow.querySelectorAll('[data-stat]')) ui.stats[element.dataset.stat] = element;
-    ui.launcher.addEventListener('click', () => openPanel(false));
+    ui.launcher.addEventListener('click', () => openPanel(false, true));
     ui.quickSave.addEventListener('click', saveDetailOnly);
     ui.batchList.addEventListener('click', () => saveCurrent(listedWorks()));
     ui.close.addEventListener('click', closePanel);
@@ -569,6 +574,9 @@
     ui.refresh.addEventListener('click', () => { syncUi(); addLog('已手动刷新页面识别结果'); });
     ui.stop.addEventListener('click', () => { cancelled = true; ui.stop.disabled = true; setPhase('正在停止；已发出的 Raindrop 请求不会强行中断', 'warn'); });
     loader.mount(find('.load-list'));
+    layout = globalThis.LoveAVLayoutController?.({ ui, compact: setPanelCompact, sync: syncUi,
+      pending: () => pendingWorks, saving: () => saving,
+      removePending: key => { if (pendingWorks.delete(key)) { saveSessionStats.total--; renderSaveSessionStats(); } } });
     return ui;
   }
 
@@ -603,14 +611,20 @@
       ui.alternate.textContent = workflow.pagePrimaryAction === 'filter' ? saveText : filterText;
       ui.action.disabled = loader.active || count === 0;
       ui.alternate.disabled = loader.active || count === 0;
-      setStats({ total: count });
+      if (!saveSessionStats.total) setStats({ total: count });
       if (ui.phase.textContent === '正在识别当前页面…') {
         setPhase(count ? `已就绪：${detail ? `当前作品 ${detail.code}` : `当前页面 ${count} 个作品`}` : '页面已加载，暂未识别到作品', count ? 'success' : 'warn');
       }
     }
+    layout?.refresh();
   }
 
-  chrome.runtime.onMessage.addListener((message) => {
+  chrome.runtime.onMessage.addListener((message, sender, respond) => {
+    if (message?.type === 'loveav-layout-snapshot') { respond(layout?.snapshot() || { ok: false }); return; }
+    if (message?.type === 'loveav-layout-act') { respond(layout?.act(message) || { ok: false }); return; }
+    if (message?.type === 'loveav-layout-set') {
+      layout?.change(message.mode, false).then(() => respond({ ok: true })); return true;
+    }
     if (message?.type !== 'loveav-save-current') return undefined;
     openPanel();
     saveCurrent();
