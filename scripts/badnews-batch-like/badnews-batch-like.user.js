@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bad.news 批量点赞工具
 // @namespace    https://github.com/3ll3-3ll3/tampermonkey-scripts
-// @version      1.0.2
+// @version      1.0.3
 // @description  手动批量点赞当前正文或右侧排行榜，跳过已点赞项，支持停止与进度显示。
 // @match        https://bad.news/*
 // @match        https://www.bad.news/*
@@ -32,7 +32,7 @@
     <header><h2>Bad.news 批量点赞</h2><button class="close" aria-label="收起">×</button></header>
     <p class="note">点赞会提交到当前网站账号，可能影响公开评分。不是 Raindrop 收藏。仅处理当前已加载内容，不自动翻页。</p>
     <label>处理范围<select class="scope"><option value="main">正文作品</option><option value="rank">右侧排行榜</option><option value="all">正文 + 排行榜</option></select></label>
-    <label>每次间隔 <input class="delay" type="number" min="250" max="60000" step="50" value="2000"> 毫秒</label>
+    <label>每次间隔 <input class="delay" type="number" min="250" max="60000" step="50" value="1000"> 毫秒</label>
     <p class="count"></p><div class="actions"><button class="refresh">刷新识别</button><button class="start">开始点赞</button><button class="stop" disabled>停止</button></div>
     <progress max="1" value="0"></progress><p class="status" role="status">等待手动启动</p><div class="log" role="log"></div>
     <p class="note">跳过已点赞；状态未知时不点击。结果仅按网页按钮状态确认，不代表服务器持久化校验。结果不明后请刷新页面核对，不自动重试。</p>

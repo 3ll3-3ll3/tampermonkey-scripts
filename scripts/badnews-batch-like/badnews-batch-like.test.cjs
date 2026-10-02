@@ -21,6 +21,7 @@ const path = require('node:path');
     }
     const panel = page.locator('#badnews-batch-like');
     await setup(vote('101') + vote('102', true) + `<aside class="side" id="top-content-news">${vote('101')}${vote('103')}</aside>`);
+    assert.equal(await panel.locator('.delay').inputValue(), '1000');
     await panel.locator('.delay').fill('249');
     await panel.locator('.start').click();
     assert.match(await panel.locator('.status').textContent(), /250–60000/);
