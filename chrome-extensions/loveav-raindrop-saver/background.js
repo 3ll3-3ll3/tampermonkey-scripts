@@ -1,9 +1,8 @@
 'use strict';
 
-importScripts('loveav-core.js', 'rendered-detail-reader.js');
+importScripts('loveav-core.js');
 
 const CORE = globalThis.LoveAVCore;
-const renderedReader = globalThis.createLoveAVRenderedReader?.(chrome, CORE);
 const API_ROOT = 'https://api.raindrop.io/rest/v1';
 const TOKEN_URL = 'https://raindrop.io/oauth/access_token';
 const DEFAULT_SETTINGS = Object.freeze({
@@ -428,9 +427,6 @@ function openLayoutWindow(tabId) {
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   const run = async () => {
     switch (message?.type) {
-      case 'loveav-read-rendered-detail': return renderedReader.read(message.work, _sender);
-      case 'loveav-cancel-rendered-detail':
-        renderedReader.cancel(_sender.tab?.id); return { ok: true };
       case 'loveav-layout-register':
         if (!_sender.tab?.id) throw new Error('缺少来源网页');
         await chrome.sidePanel.setOptions({ tabId: _sender.tab.id, path: `layout-panel.html?tab=${_sender.tab.id}&view=sidebar`, enabled: true });

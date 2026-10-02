@@ -21,10 +21,14 @@ const path = require('node:path');
         <div><span>男优：</span><a href="/actors/man">测试男优</a></div></div>
         <div class="rec__grid"><a href="/actresses/other">推荐女优</a><a href="/genres/other">推荐类型</a></div>
         <script src="https://static.cloudflareinsights.com/beacon.min.js"></script>`;
-      const list = `<h1>首页</h1><article><a href="${prefix}abc-123">ABC-123 完整标题</a></article>`;
+      const list = `<h1>首页</h1><article><a href="${prefix}abc-123?source=homepage">ABC-123 完整标题</a></article>`;
+      const detailRequests = [];
       let responseBody = normal;
       let httpStatus = 200;
-      await page.route('**/*', route => route.fulfill({ status: httpStatus, contentType: 'text/html; charset=utf-8', body: route.request().isNavigationRequest() ? list : responseBody }));
+      await page.route('**/*', route => {
+        if (!route.request().isNavigationRequest()) detailRequests.push(route.request().url());
+        return route.fulfill({ status: httpStatus, contentType: 'text/html; charset=utf-8', body: route.request().isNavigationRequest() ? list : responseBody });
+      });
       await page.goto(origin + '/cn');
       await page.evaluate(() => {
         window.saved = [];
@@ -32,6 +36,7 @@ const path = require('node:path');
         window.chrome = {
           storage: { local: { get: (_, cb) => cb({ loveavRules: rules }) }, onChanged: { addListener() {} } },
           runtime: { onMessage: { addListener() {} }, sendMessage: async message => {
+            if (/rendered-detail|probe-rendered/.test(message.type)) throw Error('收藏禁止打开详情标签页');
             if (message.type === 'loveav-save-works' || message.type === 'loveav-save-work') {
               saved.push(message.works || [message.work]);
               return { ok: true, status: 'created', created: 1, total: 1, existing: 0, failed: 0, excluded: 0, details: [] };
@@ -45,6 +50,9 @@ const path = require('node:path');
       await page.getByRole('button', { name: '♥ LoveAV 工具', exact: true }).click();
       await host.locator('.action').click();
       await page.waitForFunction(() => saved.length === 1);
+      assert.equal(detailRequests[0], detailUrl + '?source=homepage', 'preserve the actual card request URL');
+      assert.equal(page.url(), origin + '/cn', 'batch save leaves homepage unchanged');
+      assert.equal(page.context().pages().length, 1, 'batch save creates no page');
       assert.deepEqual(await page.evaluate(() => LoveAVCore.classifyWork(saved[0][0], rules).tags), ['测试女优', '剧情']);
       assert.equal(await page.evaluate(() => LoveAVCore.classifyWork(saved[0][0], rules).folder), '参考女优Tag命中');
       for (const body of ['<title>Just a moment...</title>', '<h1>ABC-999 错误作品</h1><a href="/actresses/wrong">错误女优</a>', '<h1>ABC-123</h1><nav><a href="/genres/other">仅导航</a></nav>']) {

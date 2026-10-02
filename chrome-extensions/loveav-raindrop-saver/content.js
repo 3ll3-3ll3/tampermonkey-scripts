@@ -173,6 +173,7 @@
         continue;
       }
       url.hash = '';
+      const detailRequestUrl = url.href;
       url.search = '';
       if (siteForUrl(url.href) !== site || !isDetailUrl(url.href, site)) continue;
       const code = normalizeWorkCode(CORE.workCodeFromUrl(url.href, site) || CORE.extractCode(textOf(anchor)));
@@ -180,7 +181,7 @@
       // Detail-page recommendations exclude links back to the current work (including URL variants).
       const currentCode = CORE.workCodeFromUrl(location.href, site);
       if (currentCode && CORE.codeComparableKey(currentCode) === CORE.codeComparableKey(code)) continue;
-      const work = { site, code, title: titleHintForAnchor(anchor, code), url: url.href };
+      const work = { site, code, title: titleHintForAnchor(anchor, code), url: url.href, detailRequestUrl };
       const key = url.href.toLowerCase();
       if (!bestWorks.has(key) || bestWorks.get(key).title.length < work.title.length) bestWorks.set(key, work);
       output.push({ work, anchor });
@@ -192,16 +193,26 @@
   async function fetchDetailedWork(item) {
     if (cancelled) return null;
     try {
-      if (item.site === 'MissAV' && globalThis.LoveAVRenderedDetailClient) {
-        const work = await globalThis.LoveAVRenderedDetailClient.read(item);
-        if (cancelled) return null;
-        return work;
+      const response = await fetch(item.detailRequestUrl || item.url, { credentials: 'include' });
+      if (!response.ok) {
+        const error = new Error(`HTTP ${response.status}：详情请求失败，尚未进入标签识别`);
+        error.blocked = [401, 403, 429].includes(response.status);
+        throw error;
       }
-      const response = await fetch(item.url, { credentials: 'include' });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (cancelled) return null;
+      const finalUrl = response.url || item.detailRequestUrl || item.url;
+      if (siteForUrl(finalUrl) !== item.site || CORE.codeComparableKey(CORE.workCodeFromUrl(finalUrl, item.site)) !== CORE.codeComparableKey(item.code)) {
+        throw new Error('详情请求被重定向至其他页面或作品，未进行标签写入');
+      }
       const html = await response.text();
       const doc = new DOMParser().parseFromString(html, 'text/html');
-      return workFromDocument(doc, item.url, item) || { ...item, actresses: [], typeTags: [], cover: '', needsLookup: true, detailError: '没有识别到有效作品详情' };
+      if (globalThis.LoveAVMissAVResolver.pageLooksChallenged(html)) {
+        const error = new Error('详情请求返回访问验证页面，尚未取得作品标签');
+        error.blocked = true; throw error;
+      }
+      const work = workFromDocument(doc, finalUrl, item);
+      if (work?.detailError?.includes('元数据标签')) work.detailError = '返回 HTML 中没有可识别的作品标签（不代表作品没有标签）；整批尚未提交';
+      return work || { ...item, actresses: [], typeTags: [], cover: '', needsLookup: true, detailError: '没有识别到有效作品详情' };
     } catch (error) {
       if (error.blocked) detailAccessBlocked = true;
       return { ...item, actresses: [], typeTags: [], cover: '', needsLookup: true, detailError: error.message || String(error) };
@@ -398,14 +409,12 @@
         setProgress(0, listed.length);
         addLog(isSelection ? `本次仅处理已勾选的 ${listed.length} 个作品` : `已从当前页面识别 ${listed.length} 个唯一作品`);
         const parsedBefore = saveSessionStats.parsed;
-        const concurrency = siteForUrl() === 'MissAV' && globalThis.LoveAVRenderedDetailClient ? 1 : DETAIL_CONCURRENCY;
-        if (concurrency === 1) addLog('正在通过普通详情标签页读取加载后的标签；与进入作品后单独收藏使用同一解析器。');
-        const works = await mapConcurrent(listed, concurrency, fetchDetailedWork, (done, total, item, result) => {
+        const works = await mapConcurrent(listed, DETAIL_CONCURRENCY, fetchDetailedWork, (done, total, item, result) => {
           setProgress(done, total);
           saveSessionStats.parsed = parsedBefore + done;
           renderSaveSessionStats();
           setPhase(`正在解析作品详情：${done}/${total}`);
-          if (result?.detailError) addLog(`${item.code}：${result.detailError}；不会提交空标签`, 'error');
+          if (result?.detailError) addLog(`${item.code}：${result.detailError}`, 'error');
           else if (result) logTags(result);
         });
         if (cancelled) {
@@ -582,7 +591,7 @@
       selection.setActive(true);
     });
     ui.refresh.addEventListener('click', () => { syncUi(); addLog('已手动刷新页面识别结果'); });
-    ui.stop.addEventListener('click', () => { cancelled = true; globalThis.LoveAVRenderedDetailClient?.cancel(); ui.stop.disabled = true; setPhase('正在停止；已发出的 Raindrop 请求不会强行中断', 'warn'); });
+    ui.stop.addEventListener('click', () => { cancelled = true; ui.stop.disabled = true; setPhase('正在停止；已发出的 Raindrop 请求不会强行中断', 'warn'); });
     loader.mount(find('.load-list'));
     layout = globalThis.LoveAVLayoutController?.({ ui, compact: setPanelCompact, sync: syncUi,
       pending: () => pendingWorks, saving: () => saving,
@@ -630,15 +639,6 @@
   }
 
   chrome.runtime.onMessage.addListener((message, sender, respond) => {
-    if (message?.type === 'loveav-probe-rendered-detail') {
-      const blocked = globalThis.LoveAVMissAVResolver.pageLooksChallenged(document.documentElement.outerHTML)
-        || /\/(?:login|signin)(?:\/|$)/i.test(location.pathname);
-      const work = currentDetailWork();
-      const matches = work && CORE.codeComparableKey(work.code) === CORE.codeComparableKey(message.code);
-      respond({ ready: document.readyState === 'complete', blocked, url: location.href,
-        work: matches ? work : null, error: matches ? work.detailError : '当前详情页与目标作品不匹配' });
-      return;
-    }
     if (message?.type === 'loveav-layout-snapshot') { respond(layout?.snapshot() || { ok: false }); return; }
     if (message?.type === 'loveav-layout-act') { respond(layout?.act(message) || { ok: false }); return; }
     if (message?.type === 'loveav-layout-set') {
