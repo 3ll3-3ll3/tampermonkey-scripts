@@ -5,7 +5,7 @@ const folderSettings = document.getElementById('folder-settings');
 const folderInputs = new Map();
 const siteFolderSettings = document.getElementById('site-folder-settings');
 const siteFolderInputs = new Map();
-const SITE_DEFAULTS = Object.freeze({ MissAV: 'MissAV', '123AV': 'javxxx&123av' });
+const SITE_DEFAULTS = Object.freeze({ MissAV: 'MissAV', '123AV': 'javxxx&123av', '51cg': '51cg' });
 let loadedSettings = {};
 
 function setStatus(id, message, kind = '') {
@@ -212,7 +212,7 @@ document.getElementById('save-settings').addEventListener('click', async () => {
       collectionIds,
     },
   });
-  setStatus('settings-status', '收藏夹设置已保存：MissAV → MissAV；123AV → javxxx&123av', 'success');
+  setStatus('settings-status', `收藏夹设置已保存：${Object.entries(siteCollectionNames).map(([site, name]) => `${site} → ${name}`).join('；')}`, 'success');
 });
 
 document.getElementById('list-collections').addEventListener('click', async (event) => {

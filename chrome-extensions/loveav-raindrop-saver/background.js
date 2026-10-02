@@ -1,6 +1,6 @@
 'use strict';
 
-importScripts('loveav-core.js');
+importScripts('loveav-core.js', 'cg-article.js');
 
 const CORE = globalThis.LoveAVCore;
 const API_ROOT = 'https://api.raindrop.io/rest/v1';
@@ -8,7 +8,7 @@ const TOKEN_URL = 'https://raindrop.io/oauth/access_token';
 const DEFAULT_SETTINGS = Object.freeze({
   autoCreateCollections: true,
   destinationMode: 'site',
-  siteCollectionNames: CORE.SITE_COLLECTION_DEFAULTS,
+  siteCollectionNames: { ...CORE.SITE_COLLECTION_DEFAULTS, '51cg': '51cg' },
   siteCollectionIds: {},
   workflow: {
     actionBehavior: 'workbench',
@@ -268,6 +268,27 @@ async function saveWork(rawWork) {
   return { ok: true, status: 'created', folder: target.name, ruleFolder: work.folder, id: result.item._id };
 }
 
+// Article bookmarks use the site's original tags, independent of code/actress rules.
+// Serialize this source to prevent two first-time saves from creating duplicate folders.
+let cgSaveTail = Promise.resolve();
+function saveCGArticle(raw, sender) {
+  if (!sender.tab?.id || sender.frameId > 0) return Promise.reject(Error('请在文章页面点击收藏'));
+  const work = globalThis.LoveAVCGArticle.validate(raw, sender.url);
+  const run = async () => {
+    const { loveavSettings } = await storageGet('loveavSettings');
+    const settings = mergedSettings(loveavSettings);
+    const target = { name: settings.siteCollectionNames['51cg'] || '51cg', id: settings.siteCollectionIds['51cg'] };
+    if (await urlExists(work.url)) return { ok: true, status: 'exists' };
+    const id = await resolveCollection(target, settings);
+    const result = await api('/raindrop', { method: 'POST', body: JSON.stringify({ link: work.url, title: work.title, tags: work.tags, collection: { $id: id } }) });
+    if (!result.result || !result.item?._id) throw Error('Raindrop 没有确认保存成功');
+    return { ok: true, status: 'created', folder: target.name, id: result.item._id };
+  };
+  const result = cgSaveTail.then(run);
+  cgSaveTail = result.catch(() => {});
+  return result;
+}
+
 async function saveWorks(rawWorks) {
   const [{ loveavRules, loveavSettings }, token] = await Promise.all([
     storageGet(['loveavRules', 'loveavSettings']),
@@ -427,6 +448,7 @@ function openLayoutWindow(tabId) {
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   const run = async () => {
     switch (message?.type) {
+      case 'loveav-save-cg-article': return saveCGArticle(message.article, _sender);
       case 'loveav-layout-register':
         if (!_sender.tab?.id) throw new Error('缺少来源网页');
         await chrome.sidePanel.setOptions({ tabId: _sender.tab.id, path: `layout-panel.html?tab=${_sender.tab.id}&view=sidebar`, enabled: true });
