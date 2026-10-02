@@ -8,6 +8,7 @@
   const DEFAULT_WORKFLOW = { actionBehavior: 'workbench', pagePrimaryAction: 'save', autoFilter: true };
   let saving = false;
   let cancelled = false;
+  let detailAccessBlocked = false;
   let ui = null;
   let layout = null;
   let pendingWorks = new Map();
@@ -191,12 +192,18 @@
   async function fetchDetailedWork(item) {
     if (cancelled) return null;
     try {
+      if (item.site === 'MissAV' && globalThis.LoveAVRenderedDetailClient) {
+        const work = await globalThis.LoveAVRenderedDetailClient.read(item);
+        if (cancelled) return null;
+        return work;
+      }
       const response = await fetch(item.url, { credentials: 'include' });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const html = await response.text();
       const doc = new DOMParser().parseFromString(html, 'text/html');
       return workFromDocument(doc, item.url, item) || { ...item, actresses: [], typeTags: [], cover: '', needsLookup: true, detailError: '没有识别到有效作品详情' };
     } catch (error) {
+      if (error.blocked) detailAccessBlocked = true;
       return { ...item, actresses: [], typeTags: [], cover: '', needsLookup: true, detailError: error.message || String(error) };
     }
   }
@@ -207,7 +214,7 @@
     let completed = 0;
     async function worker() {
       while (true) {
-        if (cancelled) return;
+        if (cancelled || detailAccessBlocked) return;
         const index = next;
         next += 1;
         if (index >= items.length) return;
@@ -346,6 +353,7 @@
     selection.setActive(false);
     if (!queuedRun) {
       cancelled = false;
+      detailAccessBlocked = false;
       pendingWorks.clear();
       saveSessionStats = { total: requestedWorks.length, parsed: 0, created: 0, existing: 0, excluded: 0, failed: 0 };
     }
@@ -390,7 +398,9 @@
         setProgress(0, listed.length);
         addLog(isSelection ? `本次仅处理已勾选的 ${listed.length} 个作品` : `已从当前页面识别 ${listed.length} 个唯一作品`);
         const parsedBefore = saveSessionStats.parsed;
-        const works = await mapConcurrent(listed, DETAIL_CONCURRENCY, fetchDetailedWork, (done, total, item, result) => {
+        const concurrency = siteForUrl() === 'MissAV' && globalThis.LoveAVRenderedDetailClient ? 1 : DETAIL_CONCURRENCY;
+        if (concurrency === 1) addLog('正在通过普通详情标签页读取加载后的标签；与进入作品后单独收藏使用同一解析器。');
+        const works = await mapConcurrent(listed, concurrency, fetchDetailedWork, (done, total, item, result) => {
           setProgress(done, total);
           saveSessionStats.parsed = parsedBefore + done;
           renderSaveSessionStats();
@@ -438,10 +448,10 @@
       addLog(error.message || String(error), 'error');
     } finally {
       activeSaveKeys.clear();
-      if (cancelled) {
+      if (cancelled || detailAccessBlocked) {
         const removed = pendingWorks.size;
         pendingWorks.clear();
-        if (removed) addLog(`已取消后续 ${removed} 个待处理作品`, 'warn');
+        if (removed) addLog(`${detailAccessBlocked ? '因详情页要求人工检查，已停止' : '已取消'}后续 ${removed} 个待处理作品`, 'warn');
       } else if (pendingWorks.size) {
         const [key, work] = pendingWorks.entries().next().value;
         pendingWorks.delete(key);
@@ -457,7 +467,7 @@
       setPhase(`继续处理 ${nextQueued.code}；队列剩余 ${pendingWorks.size} 项`);
       return saveCurrent([nextQueued], false, true, true);
     }
-    if (queuedRun && !cancelled) {
+    if (queuedRun && !cancelled && !detailAccessBlocked) {
       setPhase(`待处理队列完成：新增 ${saveSessionStats.created}，已存在 ${saveSessionStats.existing}，排除 ${saveSessionStats.excluded}，失败 ${saveSessionStats.failed}`, saveSessionStats.failed ? 'error' : 'success');
     }
   }
@@ -572,7 +582,7 @@
       selection.setActive(true);
     });
     ui.refresh.addEventListener('click', () => { syncUi(); addLog('已手动刷新页面识别结果'); });
-    ui.stop.addEventListener('click', () => { cancelled = true; ui.stop.disabled = true; setPhase('正在停止；已发出的 Raindrop 请求不会强行中断', 'warn'); });
+    ui.stop.addEventListener('click', () => { cancelled = true; globalThis.LoveAVRenderedDetailClient?.cancel(); ui.stop.disabled = true; setPhase('正在停止；已发出的 Raindrop 请求不会强行中断', 'warn'); });
     loader.mount(find('.load-list'));
     layout = globalThis.LoveAVLayoutController?.({ ui, compact: setPanelCompact, sync: syncUi,
       pending: () => pendingWorks, saving: () => saving,
@@ -620,6 +630,15 @@
   }
 
   chrome.runtime.onMessage.addListener((message, sender, respond) => {
+    if (message?.type === 'loveav-probe-rendered-detail') {
+      const blocked = globalThis.LoveAVMissAVResolver.pageLooksChallenged(document.documentElement.outerHTML)
+        || /\/(?:login|signin)(?:\/|$)/i.test(location.pathname);
+      const work = currentDetailWork();
+      const matches = work && CORE.codeComparableKey(work.code) === CORE.codeComparableKey(message.code);
+      respond({ ready: document.readyState === 'complete', blocked, url: location.href,
+        work: matches ? work : null, error: matches ? work.detailError : '当前详情页与目标作品不匹配' });
+      return;
+    }
     if (message?.type === 'loveav-layout-snapshot') { respond(layout?.snapshot() || { ok: false }); return; }
     if (message?.type === 'loveav-layout-act') { respond(layout?.act(message) || { ok: false }); return; }
     if (message?.type === 'loveav-layout-set') {

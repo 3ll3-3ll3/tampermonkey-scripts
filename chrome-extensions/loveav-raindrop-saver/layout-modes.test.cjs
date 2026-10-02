@@ -27,6 +27,7 @@ const files = JSON.parse(fs.readFileSync(path.join(__dirname, 'manifest.json')))
           storage: { local: { get: (key, cb) => cb(settings), set: async data => Object.assign(settings, data) }, onChanged: { addListener() {} } },
           runtime: { onMessage: { addListener(fn) { listeners.push(fn); } }, sendMessage: async message => {
             sent.push(message);
+            if (message.type === 'loveav-read-rendered-detail') return { ok: true, work: { ...message.work, actresses: ['Example'], typeTags: [], needsLookup: false } };
             if (message.type === 'loveav-save-works') {
               saved.push(message); await new Promise(r => setTimeout(r, 2000));
               return { ok: true, total: message.works.length, created: message.works.length, existing: 0, excluded: 0, failed: 0, details: [] };
