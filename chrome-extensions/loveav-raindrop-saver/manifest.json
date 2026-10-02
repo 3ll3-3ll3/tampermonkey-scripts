@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "LoveAV 一体化工具",
-  "version": "0.9.2",
+  "version": "0.9.3",
   "minimum_chrome_version": "116",
   "side_panel": { "default_path": "layout-panel.html" },
   "description": "集成番号过滤、手动番号解析及 MissAV / 123AV 一键收藏到 Raindrop。",

@@ -12,6 +12,7 @@
   let ui = null;
   let layout = null;
   let pendingWorks = new Map();
+  const retryWorks = new Map();
   let activeSaveKeys = new Set();
   let saveSessionStats = { total: 0, parsed: 0, created: 0, existing: 0, excluded: 0, failed: 0 };
   let panelCompact = false;
@@ -46,6 +47,28 @@
 
   function renderSaveSessionStats() {
     setStats(saveSessionStats);
+  }
+
+  function rememberRetry(work, reason) {
+    retryWorks.set(workKey(work), { work: { ...work }, reason });
+  }
+
+  function renderRetries() {
+    if (!ui?.retry) return;
+    ui.retry.hidden = !retryWorks.size;
+    ui.retry.disabled = saving || loader.active;
+    ui.retry.textContent = `重试未完成 ${retryWorks.size} 项`;
+    const signature = JSON.stringify([...retryWorks].map(([key, item]) => [key, item.reason]));
+    if (ui.retryList.dataset.signature === signature) return;
+    ui.retryList.dataset.signature = signature;
+    ui.retryList.replaceChildren();
+    for (const { work, reason } of retryWorks.values()) {
+      const row = document.createElement('div');
+      row.className = 'log warn';
+      row.textContent = `${work.code}：${reason}`;
+      ui.retryList.append(row);
+    }
+    ui.retryList.parentElement.hidden = !retryWorks.size;
   }
 
   function enqueueWorks(works) {
@@ -211,7 +234,7 @@
         error.blocked = true; throw error;
       }
       const work = workFromDocument(doc, finalUrl, item);
-      if (work?.detailError?.includes('元数据标签')) work.detailError = '返回 HTML 中没有可识别的作品标签（不代表作品没有标签）；整批尚未提交';
+      if (work?.detailError?.includes('元数据标签')) work.detailError = '返回 HTML 中没有可识别的作品标签（不代表作品没有标签）；此作品未提交';
       return work || { ...item, actresses: [], typeTags: [], cover: '', needsLookup: true, detailError: '没有识别到有效作品详情' };
     } catch (error) {
       if (error.blocked) detailAccessBlocked = true;
@@ -359,6 +382,7 @@
       return;
     }
     saving = true;
+    for (const work of requestedWorks) retryWorks.delete(workKey(work));
     activeSaveKeys = new Set(requestedWorks.map(workKey));
     selection.setBusy(true);
     selection.setActive(false);
@@ -374,7 +398,7 @@
     ui.stop.disabled = false;
     if (!queuedRun) ui.logs.textContent = '';
     renderSaveSessionStats();
-    let failureCounted = false;
+    let unconfirmed = requestedWorks;
     let nextQueued = null;
     try {
       const { loveavRules } = await new Promise(resolve => chrome.storage.local.get('loveavRules', resolve));
@@ -390,6 +414,7 @@
         addLog(`已识别当前作品：${detail.code}`);
         const response = await chrome.runtime.sendMessage({ type: 'loveav-save-work', work: detail });
         if (!response?.ok) throw new Error(response?.error || '保存失败');
+        unconfirmed = [];
         saveSessionStats.parsed += 1;
         saveSessionStats[response.status === 'created' ? 'created' : response.status === 'exists' ? 'existing' : 'excluded'] += 1;
         renderSaveSessionStats();
@@ -418,25 +443,42 @@
           else if (result) logTags(result);
         });
         if (cancelled) {
+          for (const work of listed) rememberRetry(work, '用户停止：尚未提交');
           setPhase('已停止，未执行 Raindrop 写入', 'warn');
           addLog('用户停止了本次处理', 'warn');
           return;
         }
-        const completedWorks = works.filter(Boolean);
-        const failedWorks = completedWorks.filter(work => work.detailError);
-        if (failedWorks.length) {
-          saveSessionStats.failed += failedWorks.length;
-          failureCounted = true;
-          renderSaveSessionStats();
-          throw new Error(`${failedWorks.length} 条详情读取或标签识别失败，整批未提交 Raindrop；请查看上方原因`);
+        const completedWorks = works.filter(work => work && !work.detailError);
+        let readFailures = 0, deferred = 0;
+        listed.forEach((work, index) => {
+          const result = works[index];
+          if (!result) {
+            deferred++;
+            rememberRetry(work, '未开始：遇到访问限制后暂停了后续读取');
+          } else if (result.detailError) {
+            readFailures++;
+            rememberRetry(work, `读取失败：${result.detailError}`);
+          }
+        });
+        saveSessionStats.failed += readFailures;
+        const unfinished = readFailures + deferred;
+        renderSaveSessionStats();
+        renderRetries();
+        unconfirmed = completedWorks;
+        if (unfinished) addLog(`读取失败 ${readFailures} 条，未开始 ${deferred} 条；已保留供手动重试。成功解析 ${completedWorks.length} 条将单独提交。`, 'warn');
+        if (!completedWorks.length) {
+          setPhase(`本轮未提交：读取失败 ${readFailures}，未开始 ${deferred}；请查看未完成列表后手动重试`, 'error');
+          return;
         }
         setPhase(`正在查重、分类并批量写入 ${completedWorks.length} 个作品…`);
         addLog('开始执行 LoveAV 5.13 分类、黑名单和 Raindrop 查重');
         const response = await chrome.runtime.sendMessage({ type: 'loveav-save-works', works: completedWorks });
         if (!response?.ok) throw new Error(response?.error || '批量保存失败');
+        unconfirmed = [];
         for (const key of ['created', 'existing', 'excluded', 'failed']) saveSessionStats[key] += Number(response[key]) || 0;
         renderSaveSessionStats();
-        for (const item of response.details || []) {
+        for (const [index, item] of (response.details || []).entries()) {
+          if (item.status === 'failed' && completedWorks[index]) rememberRetry(completedWorks[index], `提交未确认：${item.error || '保存失败'}；重试时先查重`);
           const labels = { created: '已新增', exists: '已存在', excluded: '黑名单排除', failed: '失败' };
           const suffix = item.matches?.length
             ? `：${item.matches.join('、')}`
@@ -445,20 +487,21 @@
               : item.error ? `：${item.error}` : '';
           addLog(`${item.code} ${labels[item.status] || item.status}${suffix}`, item.status === 'created' || item.status === 'exists' ? 'success' : item.status === 'failed' ? 'error' : 'warn');
         }
-        const summary = `完成 ${response.total} 条：新增 ${response.created}，已存在 ${response.existing}，黑名单排除 ${response.excluded}，失败 ${response.failed}`;
-        setPhase(summary, response.failed ? 'error' : 'success');
+        const summary = `${unfinished || response.failed ? '部分完成' : '完成'}：新增 ${response.created}，已存在 ${response.existing}，黑名单排除 ${response.excluded}，读取失败 ${readFailures}，未开始 ${deferred}，提交失败 ${response.failed}`;
+        setPhase(summary, unfinished || response.failed ? 'warn' : 'success');
+        addLog(summary, unfinished || response.failed ? 'warn' : 'success');
       }
     } catch (error) {
-      if (!failureCounted) {
-        saveSessionStats.failed += requestedWorks.length;
-        renderSaveSessionStats();
-      }
+      saveSessionStats.failed += unconfirmed.length;
+      for (const work of unconfirmed) rememberRetry(work, `${error.message || String(error)}；重试时先查重，避免重复写入`);
+      renderSaveSessionStats();
       setPhase(error.message || String(error), 'error');
       addLog(error.message || String(error), 'error');
     } finally {
       activeSaveKeys.clear();
       if (cancelled || detailAccessBlocked) {
         const removed = pendingWorks.size;
+        for (const work of pendingWorks.values()) rememberRetry(work, '未开始：队列已停止');
         pendingWorks.clear();
         if (removed) addLog(`${detailAccessBlocked ? '因详情页要求人工检查，已停止' : '已取消'}后续 ${removed} 个待处理作品`, 'warn');
       } else if (pendingWorks.size) {
@@ -557,7 +600,16 @@
     batchAction.className = 'secondary batch-list';
     batchAction.type = 'button';
     find('.actions').append(batchAction);
+    const retry = document.createElement('button');
+    retry.className = 'secondary retry-failed';
+    retry.type = 'button'; retry.hidden = true;
+    find('.actions').append(retry);
+    const retryDetails = document.createElement('details');
+    retryDetails.className = 'retry-details'; retryDetails.hidden = true;
+    retryDetails.innerHTML = '<summary>未完成作品及原因（刷新网页后清空）</summary><div class="retry-list"></div>';
+    find('.logs').before(retryDetails);
     ui = {
+      retry, retryList: retryDetails.querySelector('.retry-list'),
       batchList: batchAction,
       host, shadow, launcher: find('.tools-launcher'), quickSave: find('.quick-save'), panel: find('.panel'), action: find('.action'), alternate: find('.alternate'), choose: find('.choose'), refresh: find('.refresh'),
       stop: find('.stop'), close: find('.close'), minimize: find('.minimize'), drag: find('.drag'), phase: find('.phase'), progress: find('progress'),
@@ -567,6 +619,9 @@
     ui.launcher.addEventListener('click', () => openPanel(false, true));
     ui.quickSave.addEventListener('click', saveDetailOnly);
     ui.batchList.addEventListener('click', () => saveCurrent(listedWorks()));
+    ui.retry.addEventListener('click', () => {
+      if (!saving && !loader.active && retryWorks.size) saveCurrent([...retryWorks.values()].map(item => item.work));
+    });
     ui.close.addEventListener('click', closePanel);
     ui.minimize.addEventListener('click', () => setPanelCompact(!panelCompact));
     ui.drag.addEventListener('pointerdown', (event) => {
@@ -613,6 +668,7 @@
     ui.batchList.hidden = !detail || !listCount;
     ui.batchList.textContent = batchText;
     ui.batchList.disabled = saving || loader.active;
+    renderRetries();
     selection.setBusy(saving || loader.active || !ui.panel.hidden);
     selection.refresh();
     ui.choose.hidden = false;

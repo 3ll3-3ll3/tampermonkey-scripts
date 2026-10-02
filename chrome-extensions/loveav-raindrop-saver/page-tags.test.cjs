@@ -58,12 +58,12 @@ const path = require('node:path');
       for (const body of ['<title>Just a moment...</title>', '<h1>ABC-999 错误作品</h1><a href="/actresses/wrong">错误女优</a>', '<h1>ABC-123</h1><nav><a href="/genres/other">仅导航</a></nav>']) {
         responseBody = body;
         await host.locator('.action').click();
-        await page.waitForFunction(() => document.querySelector('#loveav-raindrop-saver-host').shadowRoot.querySelector('.phase').textContent.includes('整批未提交'));
+        await page.waitForFunction(() => document.querySelector('#loveav-raindrop-saver-host').shadowRoot.querySelector('.phase').textContent.includes('本轮未提交'));
         assert.equal(await page.evaluate(() => saved.length), 1);
       }
       httpStatus = 403;
       await host.locator('.action').click();
-      await page.waitForFunction(() => document.querySelector('#loveav-raindrop-saver-host').shadowRoot.querySelector('.phase').textContent.includes('整批未提交'));
+      await page.waitForFunction(() => document.querySelector('#loveav-raindrop-saver-host').shadowRoot.querySelector('.phase').textContent.includes('本轮未提交'));
       assert.equal(await page.evaluate(() => saved.length), 1);
       httpStatus = 200;
       // Current-detail entry uses the same parser as batch fetching.
