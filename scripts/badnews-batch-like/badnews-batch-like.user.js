@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bad.news 批量点赞工具
 // @namespace    https://github.com/3ll3-3ll3/tampermonkey-scripts
-// @version      1.2.0
+// @version      1.2.1
 // @description  手动批量点赞正文或排行榜；正文支持当前页、连续页、自定义页码范围、全部页与奇偶页筛选。
 // @match        https://bad.news/*
 // @match        https://www.bad.news/*
@@ -51,7 +51,7 @@
   function listingKey(value) {
     const url = new URL(value, location.href);
     url.hash = '';
-    url.pathname = url.pathname.replace(/\/page\/\d+\/?$/, '').replace(/\/$/, '') || '/';
+    url.pathname = url.pathname.replace(/\/page(?:\/|-)\d+\/?$/, '').replace(/\/$/, '') || '/';
     for (const key of ['page', 'p']) url.searchParams.delete(key);
     url.searchParams.sort();
     return url.href;
@@ -60,7 +60,7 @@
     const links = [...document.querySelectorAll('a[href]')].filter(a => {
       const label = [a.textContent, a.getAttribute('aria-label'), a.getAttribute('title')].filter(Boolean).map(s => s.trim());
       return visible(a) && !a.closest('.side,[id^="top-content-"],.disabled,[aria-disabled="true"]') &&
-        (a.relList.contains('next') || a.matches('.pagination .next a,.pager .next a,a.next') ||
+        (a.relList.contains('next') || a.matches('.pagination .next a,.pager .next a,a.next,a.next-page') ||
           label.some(s => /^(?:下一[页頁]|下[页頁]|下一[页頁]\s*[›»>→]+|next(?:\s+page)?(?:\s*[›»>→]+)?)$/i.test(s)));
     });
     const urls = [...new Set(links.map(a => {
@@ -75,7 +75,7 @@
   }
   function pageNumber(value = location.href) {
     const url = new URL(value, location.href);
-    const values = [url.searchParams.get('page'), url.searchParams.get('p'), url.pathname.match(/\/page\/(\d+)\/?$/)?.[1]].filter(v => v !== null && v !== undefined);
+    const values = [url.searchParams.get('page'), url.searchParams.get('p'), url.pathname.match(/\/page(?:\/|-)(\d+)\/?$/)?.[1]].filter(v => v !== null && v !== undefined);
     if (!values.length) return 1;
     if (values.some(v => !/^\d+$/.test(v)) || new Set(values.map(Number)).size !== 1) throw Error('无法确认网站页码，请先打开带明确页码的页面');
     return Number(values[0]);
@@ -87,7 +87,7 @@
         const label = (a.textContent || '').trim();
         const labeled = a.closest('.pagination,.pager') || ['next','prev','first','last'].some(rel => a.relList.contains(rel)) || /^(?:\d+|首页|末页|尾页|上一[页頁]|下一[页頁]|first|last|next|previous)(?:\s*[›»>→«‹<←]*)$/i.test(label);
         if (!labeled || url.origin !== location.origin || url.protocol !== 'https:' || url.username || url.password || listingKey(url.href) !== listingKey(location.href)) return null;
-        return { url: safeUrl(url.href), page: pageNumber(url.href), last: a.relList.contains('last') || /^(?:末页|尾页|末頁|尾頁|last(?: page)?)$/i.test(label) };
+        return { url: safeUrl(url.href), page: pageNumber(url.href), last: a.relList.contains('last') || a.matches('.last-page') || /^(?:末页|尾页|末頁|尾頁|last(?: page)?)$/i.test(label) };
       } catch { return null; }
     }).filter(Boolean);
   }

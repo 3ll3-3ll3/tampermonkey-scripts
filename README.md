@@ -13,7 +13,7 @@
 
 | 脚本 | 当前版本 | 用途 | 安装文件 |
 | --- | --- | --- | --- |
-| Bad.news 批量点赞工具 | 1.2.0 | 正文支持当前页、连续页、自定义范围、全部页及奇偶页筛选；排行榜单页点赞 | [`badnews-batch-like.user.js`](scripts/badnews-batch-like/badnews-batch-like.user.js) |
+| Bad.news 批量点赞工具 | 1.2.1 | 正文支持当前页、连续页、自定义范围、全部页及奇偶页筛选；适配 `/page-N` 分页 | [`badnews-batch-like.user.js`](scripts/badnews-batch-like/badnews-batch-like.user.js) |
 | MissAV Auto Load More | 1.5.1 | 加载到指定数量后复制含番号的完整作品标题；支持单板块与全部板块汇总 | [`missav-auto-loader.user.js`](scripts/missav-auto-loader/missav-auto-loader.user.js) |
 | LoveAV MissAV 最新脚本启动器 | 1.1.0 | 自动读取已授权 results 目录中的最新项目目录模式脚本；拒绝 Downloads 兜底旧脚本 | [`loveav-missav-runner.user.js`](scripts/loveav-missav-runner/loveav-missav-runner.user.js) |
 | LoveAV Whos.tv 最新脚本启动器 | 1.1.1 | 一键运行最新抓取脚本，完整 JSON 自动保存并核验到授权的 imports 目录 | [`loveav-whostv-runner.user.js`](scripts/loveav-whostv-runner/loveav-whostv-runner.user.js) |
