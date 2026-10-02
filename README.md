@@ -7,7 +7,7 @@
 | 工具 | 当前版本 | 用途 | 目录 |
 | --- | --- | --- | --- |
 | 全局番号过滤器 | 1.0.1 | 独立于任何网站，手动输入任意长度文字；兼容 MissAV Manager v0.5.13 | [`global-code-filter`](chrome-extensions/global-code-filter/README.md) |
-| LoveAV 一体化工具 | 0.7.7 | MissAV / 123AV 卡片小爱心收藏、当前作品一键收藏及面板批量收藏 | [`loveav-raindrop-saver`](chrome-extensions/loveav-raindrop-saver/README.md) |
+| LoveAV 一体化工具 | 0.8.0 | MissAV / 123AV 可连续追加单项收藏；紧凑、可展开、可拖动的处理面板 | [`loveav-raindrop-saver`](chrome-extensions/loveav-raindrop-saver/README.md) |
 
 ## Tampermonkey 脚本
 

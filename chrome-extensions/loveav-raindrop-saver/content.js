@@ -9,11 +9,17 @@
   let saving = false;
   let cancelled = false;
   let ui = null;
+  let pendingWorks = new Map();
+  let activeSaveKeys = new Set();
+  let saveSessionStats = { total: 0, parsed: 0, created: 0, existing: 0, excluded: 0, failed: 0 };
+  let panelCompact = false;
+  let panelPosition = null;
+  let panelDrag = null;
   let workflow = { ...DEFAULT_WORKFLOW };
   let folderSettings = {};
   const selection = globalThis.LoveAVPageSelection({
     scan: scanWorkAnchors,
-    save: (works) => saveCurrent(works),
+    save: (works) => saveCurrent(works, false, false, works.length === 1),
     onChange: () => {
       if (ui?.choose) ui.choose.textContent = `选择部分收藏${selection.count ? ` · 已选 ${selection.count}` : ''}`;
     },
@@ -30,6 +36,27 @@
 
   function normalizeWorkCode(value) {
     return FILTER?.normalizeCode?.(value) || CORE.normalizeCode(value);
+  }
+
+  function workKey(work) {
+    return String(work?.url || `${work?.site || ''}:${work?.code || ''}`).toLowerCase();
+  }
+
+  function renderSaveSessionStats() {
+    setStats(saveSessionStats);
+  }
+
+  function enqueueWorks(works) {
+    let added = 0;
+    for (const work of works) {
+      const key = workKey(work);
+      if (!key || activeSaveKeys.has(key) || pendingWorks.has(key)) continue;
+      pendingWorks.set(key, { ...work });
+      added += 1;
+    }
+    saveSessionStats.total += added;
+    renderSaveSessionStats();
+    return added;
   }
 
   function siteForUrl(value = location.href) {
@@ -237,10 +264,33 @@
     return count ? `提取并过滤本页 · ${count}` : '未识别到作品';
   }
 
-  function openPanel() {
+  function placePanel() {
+    if (!ui?.panel || !panelPosition) return;
+    const rect = ui.panel.getBoundingClientRect();
+    panelPosition.x = Math.min(Math.max(8, panelPosition.x), Math.max(8, innerWidth - rect.width - 8));
+    panelPosition.y = Math.min(Math.max(8, panelPosition.y), Math.max(8, innerHeight - rect.height - 8));
+    ui.panel.style.left = `${panelPosition.x}px`;
+    ui.panel.style.top = `${panelPosition.y}px`;
+    ui.panel.style.bottom = 'auto';
+  }
+
+  function setPanelCompact(value) {
+    panelCompact = Boolean(value);
+    if (!ui) return;
+    ui.panel.classList.toggle('compact', panelCompact);
+    ui.minimize.textContent = panelCompact ? '展开' : '收起';
+    ui.minimize.setAttribute('aria-expanded', String(!panelCompact));
+    requestAnimationFrame(placePanel);
+  }
+
+  function openPanel(compact = false) {
     ensureUi();
+    const wasHidden = ui.panel.hidden;
     ui.panel.hidden = false;
     ui.launcher.hidden = true;
+    if (!compact) setPanelCompact(false);
+    else if (wasHidden) setPanelCompact(true);
+    placePanel();
     syncUi();
   }
 
@@ -258,30 +308,50 @@
       setPhase('当前不是作品详情页，请打开具体作品后重试', 'warn');
       return;
     }
-    saveCurrent();
+    saveCurrent(null, false, false, true);
   }
 
-  async function saveCurrent(selectedWorks = null, fromLoader = false) {
-    if (saving || (loader.active && !fromLoader)) return;
+  async function saveCurrent(selectedWorks = null, fromLoader = false, queuedRun = false, compactStart = false) {
+    if (loader.active && !fromLoader) return;
     const isSelection = Array.isArray(selectedWorks);
     const detail = isSelection ? null : currentDetailWork();
     const listed = isSelection ? selectedWorks.map((work) => ({ ...work })) : detail ? [] : listedWorks();
-    if (!detail && !listed.length) {
+    const requestedWorks = detail ? [detail] : listed;
+    if (!requestedWorks.length) {
       openPanel();
       setPhase('当前页面没有识别到可收藏的作品', 'error');
       addLog('请等页面加载完成后点“刷新识别”', 'error');
       return;
     }
+    if (saving) {
+      const added = enqueueWorks(requestedWorks);
+      openPanel(true);
+      if (added) {
+        setPhase(`已加入 ${added} 项待处理；当前完成后自动继续`, 'info');
+        addLog(`已追加 ${requestedWorks.filter((work) => pendingWorks.has(workKey(work))).map((work) => work.code).join('、')}；待处理 ${pendingWorks.size} 项`, 'success');
+      } else {
+        setPhase('这些作品正在处理或已经在待处理队列中', 'warn');
+      }
+      syncUi();
+      return;
+    }
     saving = true;
+    activeSaveKeys = new Set(requestedWorks.map(workKey));
     selection.setBusy(true);
     selection.setActive(false);
-    cancelled = false;
-    openPanel();
+    if (!queuedRun) {
+      cancelled = false;
+      pendingWorks.clear();
+      saveSessionStats = { total: requestedWorks.length, parsed: 0, created: 0, existing: 0, excluded: 0, failed: 0 };
+    }
+    openPanel(compactStart || queuedRun || (isSelection && requestedWorks.length === 1));
     ui.action.disabled = true;
     ui.alternate.disabled = true;
     ui.stop.disabled = false;
-    ui.logs.textContent = '';
-    setStats({ total: detail ? 1 : listed.length, parsed: 0, created: 0, existing: 0, excluded: 0, failed: 0 });
+    if (!queuedRun) ui.logs.textContent = '';
+    renderSaveSessionStats();
+    let failureCounted = false;
+    let nextQueued = null;
     try {
       const { loveavRules } = await new Promise(resolve => chrome.storage.local.get('loveavRules', resolve));
       const logTags = work => {
@@ -296,7 +366,9 @@
         addLog(`已识别当前作品：${detail.code}`);
         const response = await chrome.runtime.sendMessage({ type: 'loveav-save-work', work: detail });
         if (!response?.ok) throw new Error(response?.error || '保存失败');
-        setStats({ parsed: 1, [response.status === 'created' ? 'created' : response.status === 'exists' ? 'existing' : 'excluded']: 1 });
+        saveSessionStats.parsed += 1;
+        saveSessionStats[response.status === 'created' ? 'created' : response.status === 'exists' ? 'existing' : 'excluded'] += 1;
+        renderSaveSessionStats();
         setProgress(1, 1);
         if (response.status === 'excluded') {
           setPhase('处理完成：已按黑名单排除', 'warn');
@@ -312,9 +384,11 @@
         setPhase(`正在解析 ${listed.length} 个作品详情…`);
         setProgress(0, listed.length);
         addLog(isSelection ? `本次仅处理已勾选的 ${listed.length} 个作品` : `已从当前页面识别 ${listed.length} 个唯一作品`);
+        const parsedBefore = saveSessionStats.parsed;
         const works = await mapConcurrent(listed, DETAIL_CONCURRENCY, fetchDetailedWork, (done, total, item, result) => {
           setProgress(done, total);
-          setStats({ parsed: done });
+          saveSessionStats.parsed = parsedBefore + done;
+          renderSaveSessionStats();
           setPhase(`正在解析作品详情：${done}/${total}`);
           if (result?.detailError) addLog(`${item.code}：${result.detailError}；不会提交空标签`, 'error');
           else if (result) logTags(result);
@@ -327,14 +401,17 @@
         const completedWorks = works.filter(Boolean);
         const failedWorks = completedWorks.filter(work => work.detailError);
         if (failedWorks.length) {
-          setStats({ failed: failedWorks.length });
+          saveSessionStats.failed += failedWorks.length;
+          failureCounted = true;
+          renderSaveSessionStats();
           throw new Error(`${failedWorks.length} 条详情读取或标签识别失败，整批未提交 Raindrop；请查看上方原因`);
         }
         setPhase(`正在查重、分类并批量写入 ${completedWorks.length} 个作品…`);
         addLog('开始执行 LoveAV 5.13 分类、黑名单和 Raindrop 查重');
         const response = await chrome.runtime.sendMessage({ type: 'loveav-save-works', works: completedWorks });
         if (!response?.ok) throw new Error(response?.error || '批量保存失败');
-        setStats(response);
+        for (const key of ['created', 'existing', 'excluded', 'failed']) saveSessionStats[key] += Number(response[key]) || 0;
+        renderSaveSessionStats();
         for (const item of response.details || []) {
           const labels = { created: '已新增', exists: '已存在', excluded: '黑名单排除', failed: '失败' };
           const suffix = item.matches?.length
@@ -348,13 +425,35 @@
         setPhase(summary, response.failed ? 'error' : 'success');
       }
     } catch (error) {
+      if (!failureCounted) {
+        saveSessionStats.failed += requestedWorks.length;
+        renderSaveSessionStats();
+      }
       setPhase(error.message || String(error), 'error');
       addLog(error.message || String(error), 'error');
     } finally {
+      activeSaveKeys.clear();
+      if (cancelled) {
+        const removed = pendingWorks.size;
+        pendingWorks.clear();
+        if (removed) addLog(`已取消后续 ${removed} 个待处理作品`, 'warn');
+      } else if (pendingWorks.size) {
+        const [key, work] = pendingWorks.entries().next().value;
+        pendingWorks.delete(key);
+        nextQueued = work;
+      }
       saving = false;
       selection.setBusy(false);
       if (ui) ui.stop.disabled = true;
       syncUi();
+      if (saveSessionStats.total) renderSaveSessionStats();
+    }
+    if (nextQueued) {
+      setPhase(`继续处理 ${nextQueued.code}；队列剩余 ${pendingWorks.size} 项`);
+      return saveCurrent([nextQueued], false, true, true);
+    }
+    if (queuedRun && !cancelled) {
+      setPhase(`待处理队列完成：新增 ${saveSessionStats.created}，已存在 ${saveSessionStats.existing}，排除 ${saveSessionStats.excluded}，失败 ${saveSessionStats.failed}`, saveSessionStats.failed ? 'error' : 'success');
     }
   }
 
@@ -408,14 +507,14 @@
     const shadow = host.shadowRoot || host.attachShadow({ mode: 'open' });
     shadow.innerHTML = `
       <style>
-        *{box-sizing:border-box}button{font:inherit}.launcher,.panel{pointer-events:auto}.launcher{position:fixed;left:18px;bottom:18px;z-index:2147483647;border:1px solid #8b7cf6;border-radius:999px;padding:11px 16px;background:#5b4fcf;color:#fff;font:700 14px/1.2 system-ui,"Microsoft YaHei",sans-serif;box-shadow:0 10px 30px #0006;cursor:pointer}.launcher[hidden],.panel[hidden]{display:none!important}.panel{position:fixed;left:18px;bottom:18px;z-index:2147483647;width:min(500px,calc(100vw - 36px));max-height:min(720px,calc(100vh - 36px));overflow:hidden;border:1px solid #475569;border-radius:15px;background:#0f172af2;color:#e5e7eb;box-shadow:0 18px 55px #0009;font:13px/1.45 system-ui,"Microsoft YaHei",sans-serif}.head{display:flex;align-items:center;justify-content:space-between;padding:13px 14px;border-bottom:1px solid #334155}.title{font-size:16px;font-weight:800}.sub{color:#94a3b8;font-size:12px}.close{border:0;background:transparent;color:#cbd5e1;font-size:22px;cursor:pointer}.body{padding:13px;overflow:auto;max-height:calc(min(720px,100vh - 36px) - 54px)}.phase{margin-bottom:10px;padding:9px 10px;border-radius:8px;background:#1e293b;color:#dbeafe}.phase[data-kind="success"]{background:#064e3b;color:#d1fae5}.phase[data-kind="warn"]{background:#713f12;color:#fef3c7}.phase[data-kind="error"]{background:#7f1d1d;color:#fee2e2}.actions{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}.primary,.secondary{border:0;border-radius:8px;padding:9px 12px;color:#fff;cursor:pointer}.primary{flex:1 1 220px;background:#4f46e5;font-weight:700}.secondary{background:#475569}.secondary.alternate{flex:1 1 170px;background:#0369a1;font-weight:700}.stop{background:#b91c1c}.primary:disabled,.secondary:disabled{opacity:.45;cursor:not-allowed}.barrow{display:flex;align-items:center;gap:9px;margin:8px 0}.barrow progress{width:100%;height:10px;accent-color:#7c6df2}.progress-text{min-width:50px;text-align:right;color:#cbd5e1}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin:10px 0}.stat{padding:7px;border:1px solid #334155;border-radius:8px;background:#172033;text-align:center}.stat b{display:block;font-size:16px;color:#fff}.stat span{color:#94a3b8;font-size:11px}.logs{height:230px;overflow:auto;border:1px solid #334155;border-radius:8px;background:#080f1e;padding:8px;font:12px/1.45 Consolas,"Microsoft YaHei",monospace}.log{padding:3px 0;border-bottom:1px solid #1e293b;color:#cbd5e1}.log.success{color:#86efac}.log.warn{color:#fde68a}.log.error{color:#fca5a5}.ready{margin-top:8px;color:#94a3b8;font-size:12px}
+        *{box-sizing:border-box}button{font:inherit}.launcher,.panel{pointer-events:auto}.launcher{position:fixed;left:18px;bottom:18px;z-index:2147483647;border:1px solid #8b7cf6;border-radius:999px;padding:11px 16px;background:#5b4fcf;color:#fff;font:700 14px/1.2 system-ui,"Microsoft YaHei",sans-serif;box-shadow:0 10px 30px #0006;cursor:pointer}.launcher[hidden],.panel[hidden]{display:none!important}.panel{position:fixed;left:18px;bottom:18px;z-index:2147483647;width:min(460px,calc(100vw - 36px));min-width:min(340px,calc(100vw - 36px));min-height:min(260px,calc(100vh - 36px));max-width:calc(100vw - 16px);max-height:min(680px,calc(100vh - 36px));overflow:hidden;resize:both;border:1px solid #475569;border-radius:15px;background:#0f172af2;color:#e5e7eb;box-shadow:0 18px 55px #0009;font:13px/1.45 system-ui,"Microsoft YaHei",sans-serif}.panel.compact{width:min(370px,calc(100vw - 36px));min-width:0;height:auto!important;min-height:0;resize:none}.panel.compact .body{display:none}.panel.compact .head{border-bottom:0}.head{display:flex;align-items:center;gap:9px;padding:10px 12px;border-bottom:1px solid #334155}.drag{cursor:grab;touch-action:none;user-select:none;color:#c7d2fe;font-size:18px}.drag:active{cursor:grabbing}.head-main{min-width:0;flex:1}.title{font-size:15px;font-weight:800}.sub{color:#a5b4fc;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.head-actions{display:flex;align-items:center;gap:5px}.minimize,.close{border:0;border-radius:6px;padding:5px 8px;background:#334155;color:#e2e8f0;cursor:pointer}.close{font-size:18px;line-height:1}.body{padding:12px;overflow:auto;max-height:calc(min(680px,100vh - 36px) - 52px)}.phase{margin-bottom:10px;padding:9px 10px;border-radius:8px;background:#1e293b;color:#dbeafe}.phase[data-kind="success"]{background:#064e3b;color:#d1fae5}.phase[data-kind="warn"]{background:#713f12;color:#fef3c7}.phase[data-kind="error"]{background:#7f1d1d;color:#fee2e2}.actions{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}.primary,.secondary{border:0;border-radius:8px;padding:9px 12px;color:#fff;cursor:pointer}.primary{flex:1 1 220px;background:#4f46e5;font-weight:700}.secondary{background:#475569}.secondary.alternate{flex:1 1 170px;background:#0369a1;font-weight:700}.stop{background:#b91c1c}.primary:disabled,.secondary:disabled{opacity:.45;cursor:not-allowed}.barrow{display:flex;align-items:center;gap:9px;margin:8px 0}.barrow progress{width:100%;height:10px;accent-color:#7c6df2}.progress-text{min-width:50px;text-align:right;color:#cbd5e1}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin:10px 0}.stat{padding:7px;border:1px solid #334155;border-radius:8px;background:#172033;text-align:center}.stat b{display:block;font-size:16px;color:#fff}.stat span{color:#94a3b8;font-size:11px}.logs{height:170px;overflow:auto;border:1px solid #334155;border-radius:8px;background:#080f1e;padding:8px;font:12px/1.45 Consolas,"Microsoft YaHei",monospace}.log{padding:3px 0;border-bottom:1px solid #1e293b;color:#cbd5e1}.log.success{color:#86efac}.log.warn{color:#fde68a}.log.error{color:#fca5a5}.ready{margin-top:8px;color:#94a3b8;font-size:12px}
       </style>
       <style>.load-row{padding:10px;margin:8px 0;border:1px solid #475569;border-radius:9px;background:#172033}.load-row label{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:7px 0}.load-row input,.load-row select{max-width:65%;padding:6px;border:1px solid #64748b;border-radius:6px;background:#0f172a;color:#e2e8f0}.load-destination,.load-status,.load-note{font-size:12px;color:#a5b4fc}.load-conflict{color:#fbbf24}summary{cursor:pointer;padding:8px 0}.load-row[hidden],[hidden].load-empty,[hidden].load-conflict{display:none!important}</style>
       <style>.quick-save{bottom:72px;max-width:calc(100vw - 36px);white-space:normal}.quick-save:disabled{opacity:.65;cursor:wait}</style>
       <button class="launcher quick-save" type="button" hidden></button>
       <button class="launcher tools-launcher" type="button" title="打开 LoveAV 网页工作流">♥ LoveAV 工具</button>
       <section class="panel" hidden>
-        <div class="head"><div><div class="title">LoveAV 网页工作流</div><div class="sub"></div></div><button class="close" type="button" title="收起">×</button></div>
+        <div class="head"><span class="drag" title="拖动面板">⠿</span><div class="head-main"><div class="title">LoveAV 网页工作流</div><div class="sub"></div></div><div class="head-actions"><button class="minimize" type="button" aria-expanded="true">收起</button><button class="close" type="button" title="关闭">×</button></div></div>
         <div class="body">
           <div class="phase" data-kind="info">正在识别当前页面…</div>
           <div class="actions"><button class="primary action" type="button"></button><button class="secondary alternate" type="button"></button><button class="secondary choose" type="button">选择部分收藏</button><button class="secondary refresh" type="button">刷新识别</button><button class="secondary stop" type="button" disabled>停止</button></div>
@@ -437,14 +536,29 @@
     ui = {
       batchList: batchAction,
       host, shadow, launcher: find('.tools-launcher'), quickSave: find('.quick-save'), panel: find('.panel'), action: find('.action'), alternate: find('.alternate'), choose: find('.choose'), refresh: find('.refresh'),
-      stop: find('.stop'), close: find('.close'), phase: find('.phase'), progress: find('progress'),
+      stop: find('.stop'), close: find('.close'), minimize: find('.minimize'), drag: find('.drag'), phase: find('.phase'), progress: find('progress'),
       progressText: find('.progress-text'), logs: find('.logs'), sub: find('.sub'), stats: {},
     };
     for (const element of shadow.querySelectorAll('[data-stat]')) ui.stats[element.dataset.stat] = element;
-    ui.launcher.addEventListener('click', openPanel);
+    ui.launcher.addEventListener('click', () => openPanel(false));
     ui.quickSave.addEventListener('click', saveDetailOnly);
     ui.batchList.addEventListener('click', () => saveCurrent(listedWorks()));
     ui.close.addEventListener('click', closePanel);
+    ui.minimize.addEventListener('click', () => setPanelCompact(!panelCompact));
+    ui.drag.addEventListener('pointerdown', (event) => {
+      if (event.button !== 0) return;
+      const rect = ui.panel.getBoundingClientRect();
+      panelDrag = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+      ui.drag.setPointerCapture(event.pointerId);
+      event.preventDefault();
+    });
+    ui.drag.addEventListener('pointermove', (event) => {
+      if (!panelDrag) return;
+      panelPosition = { x: event.clientX - panelDrag.x, y: event.clientY - panelDrag.y };
+      placePanel();
+    });
+    ui.drag.addEventListener('pointerup', () => { panelDrag = null; });
+    ui.drag.addEventListener('lostpointercapture', () => { panelDrag = null; });
     ui.action.addEventListener('click', () => (workflow.pagePrimaryAction === 'filter' ? filterCurrentPage() : saveCurrent()));
     ui.alternate.addEventListener('click', () => (workflow.pagePrimaryAction === 'filter' ? saveCurrent() : filterCurrentPage()));
     ui.choose.addEventListener('click', () => {
@@ -463,10 +577,11 @@
     const detail = currentDetailWork();
     const listCount = listedWorks().length;
     const count = detail ? 1 : listCount;
-    ui.quickSave.hidden = !detail || !ui.panel.hidden;
-    ui.quickSave.disabled = saving || loader.active;
-    ui.quickSave.textContent = detail ? `♥ 一键收藏当前作品 · ${detail.code}` : '';
-    ui.quickSave.title = '仅收藏当前作品到 Raindrop；沿用分类、黑名单和查重规则';
+    ui.launcher.textContent = saving ? `♥ 处理中 · 待处理 ${pendingWorks.size}` : '♥ LoveAV 工具';
+    ui.quickSave.hidden = !detail;
+    ui.quickSave.disabled = loader.active;
+    ui.quickSave.textContent = detail ? `${saving ? '＋ 加入待处理' : '♥ 一键收藏当前作品'} · ${detail.code}` : '';
+    ui.quickSave.title = saving ? '加入待处理队列；当前项目完成后自动继续' : '仅收藏当前作品到 Raindrop；沿用分类、黑名单和查重规则';
     const batchText = `${detail ? '一键收藏本页推荐' : '一键收藏本页作品'} · ${listCount}`;
     ui.batchList.hidden = !detail || !listCount;
     ui.batchList.textContent = batchText;
@@ -478,7 +593,9 @@
     if (loader.active) ui.choose.disabled = true;
     loader.refresh();
     ui.choose.textContent = `选择部分收藏${selection.count ? ` · 已选 ${selection.count}` : ''}`;
-    ui.sub.textContent = `${siteForUrl()} · ${detail ? `当前作品 ${detail.code}；另有 ${listCount} 个推荐作品` : `已识别 ${count} 个作品`}`;
+    ui.sub.textContent = saving
+      ? `${siteForUrl()} · 正在处理 ${activeSaveKeys.size} 项 · 待处理 ${pendingWorks.size} 项 · 可继续点击卡片 ♥`
+      : `${siteForUrl()} · ${detail ? `当前作品 ${detail.code}；另有 ${listCount} 个推荐作品` : `已识别 ${count} 个作品`}`;
     if (!saving) {
       const saveText = buttonText();
       const filterText = filterButtonText();
@@ -526,4 +643,5 @@
     syncUi();
   }, 1000);
   window.addEventListener('popstate', syncUi);
+  window.addEventListener('resize', placePanel);
 })();

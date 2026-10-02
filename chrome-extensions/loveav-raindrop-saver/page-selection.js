@@ -172,7 +172,7 @@
       toolbar.querySelector('.close').disabled = false;
       toolbar.querySelector('.save').disabled = busy || !selected.size;
       if (active) placeToolbar();
-      if (busy) return;
+      if (busy && active) return;
       // Only create overlays for cards visible in the viewport; large loaded lists remain cheap to display.
       const shownQuickWorks = new Set();
       for (const item of cards) {
@@ -191,7 +191,7 @@
           single.textContent = '♥';
           single.title = `收藏 ${item.work.code} 到 Raindrop`;
           single.setAttribute('aria-label', `收藏 ${item.work.code}`);
-          single.addEventListener('click', () => { if (!busy) save([{ ...item.work }]); });
+          single.addEventListener('click', () => save([{ ...item.work }]));
           box.append(single);
           layer.append(box);
           continue;
