@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "LoveAV 一体化工具",
-  "version": "0.10.1",
+  "version": "0.10.2",
   "minimum_chrome_version": "116",
   "side_panel": { "default_path": "layout-panel.html" },
   "description": "集成番号过滤、MissAV / 123AV 收藏及 51cg 文章标题与标签保存到 Raindrop。",
@@ -48,6 +48,21 @@
         "content.js"
       ],
       "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://51cg1.com/*", "https://www.51cg1.com/*"],
+      "js": ["popup-guard-main.js"],
+      "world": "MAIN",
+      "all_frames": true,
+      "match_about_blank": true,
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://51cg1.com/*", "https://www.51cg1.com/*"],
+      "js": ["popup-guard-sync.js"],
+      "all_frames": true,
+      "match_about_blank": true,
+      "run_at": "document_start"
     },
     {
       "matches": ["https://51cg1.com/*", "https://www.51cg1.com/*"],

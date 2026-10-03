@@ -2,16 +2,16 @@
   'use strict';
   if (document.getElementById('loveav-reading-guard')) return;
   const KEY = 'loveavReadingGuard';
-  const defaults = { media: true, ads: false, reading: false, font: 18, width: 900, keywords: '' };
+  const defaults = { media: true, ads: true, popups: true, external: true, reading: false, font: 18, width: 900, keywords: '' };
   const normalize = raw => ({
     media: typeof raw?.media === 'boolean' ? raw.media : defaults.media,
-    ads: raw?.ads === true, reading: raw?.reading === true,
+    ads: raw?.ads !== false, popups: raw?.popups !== false, external: raw?.external !== false, reading: raw?.reading === true,
     font: Math.max(14, Math.min(28, Number(raw?.font) || 18)),
     width: Math.max(600, Math.min(1400, Number(raw?.width) || 900)),
     keywords: String(raw?.keywords || '').slice(0, 10000),
   });
   let settings = { ...defaults }, picking = false, timer, previousFocus;
-  const manual = [], marked = new Set();
+  const manual = [], marked = new Set(), adMarked = new Set();
   const style = document.createElement('style');
   style.id = 'loveav-reading-guard-style';
   const host = document.createElement('div');
@@ -30,19 +30,24 @@
     <header><h2>浏览保护</h2><button class="close" aria-label="关闭浏览保护面板">×</button></header>
     <p>只在本机调整网页显示。Alt + Shift + P 打开／收起，Esc 关闭或取消点选。</p>
     <label><input type="checkbox" data-key="media">隐藏图片、视频和嵌入预览</label>
-    <label><input type="checkbox" data-key="ads">隐藏带明确标记的广告区域</label>
+    <label><input type="checkbox" data-key="popups">拦截脚本弹窗及偷偷打开的新标签页</label>
+    <label><input type="checkbox" data-key="external">拦截外站链接跳转（包括手动点击）</label>
+    <p class="popup-count" aria-live="polite">本页已拦截 0 次弹窗／外站跳转</p>
+    <label><input type="checkbox" data-key="ads">隐藏广告区域及夹在列表中的外站图文推广</label>
+    <p class="ad-count">已隐藏 0 个疑似外站推广区域</p>
     <label><input type="checkbox" data-key="reading">启用阅读排版</label>
     <label>正文字号 <output class="font-value"></output><input aria-label="正文字号" type="range" min="14" max="28" data-key="font"></label>
     <label>阅读宽度 <output class="width-value"></output><input aria-label="阅读宽度" type="range" min="600" max="1400" step="20" data-key="width"></label>
     <label>隐藏含这些关键词的文章卡片<textarea data-key="keywords" placeholder="每行一个词，例如：促销\n按标题匹配，不上传关键词"></textarea></label>
     <div class="row"><button class="apply primary">应用并记住</button><button class="pick">点选隐藏区域</button><button class="undo">撤销上次隐藏</button><button class="reset">恢复原网页</button></div>
     <p class="status" role="status" aria-live="polite"></p>
-    <p>隐藏是视觉处理，不拦截下载请求。嵌入视频声音及弹窗不保证阻止；点选隐藏仅对当前页面生效。</p>
+    <p>外站官网、分享、下载链接也会被拦截，需要时取消对应开关并应用。隐藏不阻止资源下载；跨域播放器、地址栏重定向不保证拦截。</p>
   </section><button class="launcher" aria-expanded="false">◉ 浏览保护</button>`;
   const $ = selector => ui.querySelector(selector);
   const status = text => { $('.status').textContent = text; };
   function setPicking(value) {
     picking = value;
+    document.documentElement?.toggleAttribute('data-loveav-guard-picking', value);
     $('.launcher').textContent = value ? '点选要隐藏的区域 · Esc 取消' : '◉ 浏览保护';
   }
   function mount() {
@@ -67,6 +72,28 @@
     $('.width-value').textContent = `${settings.width}px`;
   }
   function scan() {
+    for (const node of adMarked) node.removeAttribute('data-loveav-guard-ad');
+    adMarked.clear();
+    if (settings.ads) {
+      for (const link of document.querySelectorAll('a[href]')) {
+        if (link.closest('nav,header,footer,[role="navigation"]')) continue;
+        let outside = false;
+        try { const url = new URL(link.getAttribute('href'), location.href); outside = /^https?:$/.test(url.protocol) && url.origin !== location.origin; } catch { continue; }
+        if (!outside) continue;
+        // Match image promotions even while media visibility is disabled. Never
+        // scan article destinations or load them to make this display decision.
+        const media = link.querySelector('img,picture,video') || /background(?:-image)?\s*:.*url\(/i.test(link.getAttribute('style') || '') ||
+          [...link.querySelectorAll('[style]')].some(node => /background(?:-image)?\s*:.*url\(/i.test(node.getAttribute('style') || ''));
+        if (!media) continue;
+        let target = link;
+        const card = link.closest('article,.post-card,.post-item,.entry-card,li,.ad-item');
+        // Only collapse the wrapper if its sole link is this promotion. Mixed
+        // content cards retain their text and their legitimate article links.
+        if (card && !card.querySelector('h1') && card.querySelectorAll('a[href]').length === 1) target = card;
+        target.setAttribute('data-loveav-guard-ad', ''); adMarked.add(target);
+      }
+    }
+    $('.ad-count').textContent = `已隐藏 ${adMarked.size} 个疑似外站推广区域`;
     for (const node of marked) node.removeAttribute('data-loveav-guard-blocked');
     marked.clear();
     const words = settings.keywords.split(/\r?\n/).map(s => s.trim().toLocaleLowerCase()).filter(Boolean);
@@ -86,10 +113,11 @@
     else document.querySelectorAll('video,audio').forEach(node => node.pause());
   }
   function apply() {
+    window.postMessage({ type: 'loveav-popup-config', popups: settings.popups, external: settings.external }, '*');
     style.textContent = `
-      [data-loveav-guard-blocked],[data-loveav-guard-manual]{display:none!important}
+      [data-loveav-guard-blocked],[data-loveav-guard-manual],[data-loveav-guard-ad]{display:none!important}
       ${settings.media ? 'img,picture,video,canvas,iframe,object,embed{visibility:hidden!important} *{background-image:none!important}' : ''}
-      ${settings.ads ? '[data-ad-slot],ins.adsbygoogle,.advertisement,.ad-banner,[aria-label="Advertisement"]{display:none!important}' : ''}
+      ${settings.ads ? '[data-ad-slot],ins.adsbygoogle,.advertisement,.ad-banner,.ad-container,.ad-overlay,.ad-popup,.popup-ad,.adsbygoogle,[aria-label="Advertisement"]{display:none!important;pointer-events:none!important}' : ''}
       ${settings.reading ? `main,[role="main"],.post-content,.entry-content{max-width:${settings.width}px!important;margin-inline:auto!important} .post-content,.entry-content,article p,main p{font-size:${settings.font}px!important;line-height:1.8!important;overflow-wrap:anywhere!important}` : ''}
     `;
     scan(); pauseMedia();
@@ -110,7 +138,7 @@
     setPicking(false);
     for (const node of manual) node.removeAttribute('data-loveav-guard-manual');
     manual.length = 0;
-    settings = { ...defaults, media: false, ads: false, reading: false, keywords: '' };
+    settings = { ...defaults, media: false, ads: false, popups: false, external: false, reading: false, keywords: '' };
     render(); apply(); void persist();
   };
   $('.pick').onclick = () => { setPicking(true); status('请点击要隐藏的区域。Esc 取消；撤销按钮可恢复。'); display(false); };
@@ -135,11 +163,17 @@
     }
   }, true);
   document.addEventListener('play', pauseMedia, true);
+  window.addEventListener('message', event => {
+    if (event.source !== window || event.data?.type !== 'loveav-popup-stats') return;
+    const count = Number(event.data.count);
+    if (Number.isSafeInteger(count) && count >= 0) $('.popup-count').textContent = `本页已拦截 ${count} 次弹窗／外站跳转`;
+  });
+  window.postMessage({ type: 'loveav-popup-query' }, '*');
   new MutationObserver(records => {
     if (!records.some(record => record.target !== style && !host.contains(record.target))) return;
     clearTimeout(timer);
     timer = setTimeout(() => { mount(); scan(); pauseMedia(); }, 180);
-  }).observe(document, { childList: true, subtree: true, characterData: true });
+  }).observe(document, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['href', 'src', 'class'] });
   mount(); render(); apply();
   chrome.storage.local.get(KEY).then(data => {
     settings = normalize(data[KEY]); render(); apply();
