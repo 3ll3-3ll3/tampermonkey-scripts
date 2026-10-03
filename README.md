@@ -7,7 +7,7 @@
 | 工具 | 当前版本 | 用途 | 目录 |
 | --- | --- | --- | --- |
 | 全局番号过滤器 | 1.0.1 | 独立于任何网站，手动输入任意长度文字；兼容 MissAV Manager v0.5.13 | [`global-code-filter`](chrome-extensions/global-code-filter/README.md) |
-| LoveAV 一体化工具 | 0.10.0 | 新增 51cg 文章标题与原始标签预览、编辑、查重后收藏到独立文件夹 | [`loveav-raindrop-saver`](chrome-extensions/loveav-raindrop-saver/README.md) |
+| LoveAV 一体化工具 | 0.10.1 | 新增本地浏览保护：隐藏媒体、关键词屏蔽、可撤销区域隐藏和阅读排版 | [`loveav-raindrop-saver`](chrome-extensions/loveav-raindrop-saver/README.md) |
 
 ## Tampermonkey 脚本
 
